@@ -1,0 +1,7 @@
+archive_code/*
+Documentation/*
+Images/*
+outputs/*
+tests/*
+.ipynb_checkpoints/
+__pycache__/
