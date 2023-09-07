@@ -267,45 +267,58 @@ def refine_boxes(all_boxes, pixel_proximity_bound=110):
         return new_boxes
 
 
-def get_text_from_box(
-    image, box_contour, textboxes, textbox_leeway=10, cropping_leeway=5
-):
-    # Input: image, box contour, all textboxes (from CRAFT), textbox leeway, cropping leeway.
+def get_box_index_for_textboxes(craft_textboxes, eggcard_boxes, textbox_leeway=10):
+    # Input: boxe contours, textboxes (from CRAFT), leeway (in pixels) for textbox.
+    # Output: dictionary of box index for each textbox.
+    textbox_box_index = {}
+
+    for u, box in enumerate(craft_textboxes):
+        textbox_minx, textbox_maxx, textbox_miny, textbox_maxy = get_textbox_details(
+            box
+        )
+        box_size = np.inf
+        box_index = 0
+        for index, box_contour in enumerate(eggcard_boxes):
+            box_minx, box_maxx, box_miny, box_maxy = get_box_details(box_contour)
+            area = box_maxx * box_maxy
+            if all(
+                (
+                    (textbox_minx >= box_minx - textbox_leeway),
+                    (textbox_maxx <= box_maxx + textbox_leeway),
+                    (textbox_miny >= box_miny - textbox_leeway),
+                    (textbox_maxy <= box_maxy + textbox_leeway),
+                )
+            ) and (area < box_size):
+                box_index = deepcopy(index)
+                box_size = deepcopy(area)
+        textbox_box_index[u] = box_index
+
+    return textbox_box_index
+
+
+def get_text_from_box(image, textboxes, cropping_leeway=10):
+    # Input: image, box contour, filtered textboxes (from CRAFT), textbox leeway, cropping leeway.
     # Output: extracted text from box.
 
     final_text = []
 
-    box_minx, box_maxx, box_miny, box_maxy = get_box_details(box_contour)
     # Loop through textboxes:
-    all_boxes = []
     all_h_or_v = []
     for box in textboxes:
         # Get text box details:
-        textbox_minx, textbox_maxx, textbox_miny, textbox_maxy = get_textbox_details(
-            box
-        )
-        if all(
-            (
-                (textbox_minx >= box_minx - textbox_leeway),
-                (textbox_maxx <= box_maxx + textbox_leeway),
-                (textbox_miny >= box_miny - textbox_leeway),
-                (textbox_maxy <= box_maxy + textbox_leeway),
-            )
-        ):
-            horizontal_or_vertical = detect_orientation(box[:, 0], box[:, 1])
-            all_h_or_v.append(horizontal_or_vertical)
-            all_boxes.append(box)
+        horizontal_or_vertical = detect_orientation(box[:, 0], box[:, 1])
+        all_h_or_v.append(horizontal_or_vertical)
 
     if "v" not in all_h_or_v:
-        if len(all_boxes) == 1:
+        if len(textboxes) == 1:
             # If there's only one horizontal text box within a box, use textbox for ocr.
-            box = all_boxes[0]
+            box = textboxes[0]
             ocr, I = get_text(image, box[:, 0], box[:, 1], leeway=cropping_leeway)
             ocr = ocr.replace("\n", " ").replace("\x0c", "")
             final_text.append(ocr)
         else:
             all_text = []
-            new_boxes = refine_boxes(all_boxes)
+            new_boxes = refine_boxes(textboxes)
             for box in new_boxes:
                 ocr, I = get_text(image, box[:, 0], box[:, 1], leeway=cropping_leeway)
                 ocr = ocr.replace("\n", " ").replace("\x0c", "")
@@ -313,7 +326,7 @@ def get_text_from_box(
             final_text.append(all_text)
     else:
         all_text = []
-        for box in all_boxes:
+        for box in textboxes:
             ocr, I = get_text(image, box[:, 0], box[:, 1], leeway=cropping_leeway)
             ocr = ocr.replace("\n", " ").replace("\x0c", "").replace("|", "")
             all_text.append(ocr)
@@ -341,43 +354,27 @@ cols = [
 ]
 
 
-def plot_boxes_and_textboxes(image, contours, textboxes, path_to_save):
+def plot_boxes_and_textboxes(
+    image, contours, textboxes, textbox_box_index, path_to_save
+):
+
     fig, ax = plt.subplots(figsize=(6, 5))
     ax.imshow(image)
     try:
-        leeway = 10
-
-        plotted_textboxes = []
-
         for i, c in enumerate(contours):
-            # Segmented box details:
-            box_minx, box_maxx, box_miny, box_maxy = get_box_details(c)
-            # Plot box:
-            horizontal_or_vertical = detect_orientation(c[0], c[1])
-            if horizontal_or_vertical == "h":
-                pattern = "-"
-            else:
-                pattern = "--"
-            ax.plot(c[0], c[1], linestyle=pattern, linewidth=2, color=cols[i])
-
-            # Loop through textboxes:
-            for j, box in enumerate(textboxes):
-                # Get text box details:
-                (
-                    textbox_minx,
-                    textbox_maxx,
-                    textbox_miny,
-                    textbox_maxy,
-                ) = get_textbox_details(box)
-                if all(
-                    (
-                        (textbox_minx >= box_minx - leeway),
-                        (textbox_maxx <= box_maxx + leeway),
-                        (textbox_miny >= box_miny - leeway),
-                        (textbox_maxy <= box_maxy + leeway),
-                    )
-                ) and (j not in plotted_textboxes):
-                    # Plot textbox:
+            # Get all textboxes within box:
+            indexes = np.where(np.array(list(textbox_box_index.values())) == i)[0]
+            if len(indexes) > 0:
+                filtered_textboxes = textboxes[indexes]
+                # Plot box:
+                horizontal_or_vertical = detect_orientation(c[0], c[1])
+                if horizontal_or_vertical == "h":
+                    pattern = "-"
+                else:
+                    pattern = "--"
+                ax.plot(c[0], c[1], linestyle=pattern, linewidth=2, color=cols[i])
+                # Plot textboxes:
+                for j, box in enumerate(filtered_textboxes):
                     horizontal_or_vertical = detect_orientation(box[:, 0], box[:, 1])
                     if horizontal_or_vertical == "h":
                         pattern = "-"
@@ -390,14 +387,14 @@ def plot_boxes_and_textboxes(image, contours, textboxes, path_to_save):
                         color=cols[i],
                         linewidth=1,
                     )
-                    plotted_textboxes.append(j)
-        ax.get_xaxis().set_ticks([])
-        ax.get_yaxis().set_ticks([])
-        plt.savefig(path_to_save, dpi=600, bbox_inches="tight", pad_inches=0.15)
-        plt.close("all")
     except:
-        plt.savefig(path_to_save, dpi=600, bbox_inches="tight", pad_inches=0.15)
-        plt.close("all")
+        pass
+
+    ax.get_xaxis().set_ticks([])
+    ax.get_yaxis().set_ticks([])
+
+    plt.savefig(path_to_save, dpi=600, bbox_inches="tight", pad_inches=0.15)
+    plt.close("all")
 
 
 ###############
@@ -422,17 +419,26 @@ def extract_text_from_eggcard(image_path, plot_boxes=False):
     # 5) Find textboxes with CRAFT:
     craft_textboxes = get_craft_textboxes(image_path)
     all_text = []
-    # 6) Get text per box:
-    for box_contour in eggcard_boxes:
-        try:
-            text = get_text_from_box(image, box_contour, craft_textboxes)
-            all_text.append(text)
-        except:
-            all_text.append("N/A")
-    # 7) Plot boxes:
+    # 6) Get textbox/box index:
+    textbox_box_index = get_box_index_for_textboxes(
+        craft_textboxes, eggcard_boxes, textbox_leeway=10
+    )
+    # 7) Get text from boxes:
+    for box_index, box_contour in enumerate(eggcard_boxes):
+        indexes = np.where(np.array(list(textbox_box_index.values())) == box_index)[0]
+        if len(indexes) > 0:
+            filtered_textboxes = craft_textboxes[indexes]
+            try:
+                text = get_text_from_box(image, filtered_textboxes)
+                all_text.append(text)
+            except:
+                all_text.append("N/A")
+    # 8) Plot boxes:
     if plot_boxes is True:
         image_id = re.findall("\w+.jpg", image_path)[0]
         plot_path = box_plot_outdir + "/" + image_id
-        plot_boxes_and_textboxes(image, eggcard_boxes, craft_textboxes, plot_path)
+        plot_boxes_and_textboxes(
+            image, eggcard_boxes, craft_textboxes, textbox_box_index, plot_path
+        )
 
     return all_text
