@@ -143,7 +143,7 @@ def crop_image(image, box_x, box_y, leeway=0):
     return img_cropped
 
 
-def get_text(image, box_x, box_y, leeway=0):
+def get_text(image, box_x, box_y, leeway=0, binarize=False):
     # Input: image, x coordinates of box contour, y coordinates of box contour, leeway for cropping.
     # Output: text, cropped image.
 
@@ -151,29 +151,49 @@ def get_text(image, box_x, box_y, leeway=0):
     horizontal_or_vertical = detect_orientation(box_x, box_y)
     # 2) Crop image:
     image_cropped = crop_image(image, box_x, box_y, leeway=leeway)
+    if binarize is True:
+        thresh = threshold_otsu(cv2.cvtColor(image_cropped, cv2.COLOR_BGR2GRAY))
+        image_cropped = cv2.cvtColor(image_cropped, cv2.COLOR_BGR2GRAY) > thresh
+
     # 3) Find text:
     # If box is horizontal, we assume text is written the right way up.
     # For vertical boxes, we take the longest text found when rotated.
     if horizontal_or_vertical == "h":
-        ocr_results = pytesseract.image_to_string(
-            image_cropped, config="--psm 11 script=Latin"
-        )
+        ocr_results = tesseract_ocr(image_cropped)
     else:
         # Rotate 90 degrees:
-        rotated_image = imutils.rotate_bound(image_cropped, 90)
-        ocr_results = pytesseract.image_to_string(
-            rotated_image, config="--psm 11 script=Latin"
-        )
+        rotated_image = rotate_image(image_cropped, 90)
+        ocr_results = tesseract_ocr(rotated_image)
         # Rotate 270 degrees:
-        rotated_image_270 = imutils.rotate_bound(image_cropped, 270)
-        ocr_results_270 = pytesseract.image_to_string(
-            rotated_image_270, config="--psm 11 script=Latin"
-        )
+        rotated_image_270 = rotate_image(image_cropped, 270)
+        ocr_results_270 = tesseract_ocr(rotated_image_270)
         if len(ocr_results_270) > len(ocr_results):
             ocr_results = deepcopy(ocr_results_270)
             rotated_image = deepcopy(rotated_image_270)
         image_cropped = deepcopy(rotated_image)
     return ocr_results, image_cropped
+
+
+def rotate_image(image, angle):
+    # Input: image, angle to rotate image by.
+    # Output: rotated image.
+    try:
+        rotated_image = imutils.rotate_bound(image, angle)
+    except:
+        rotated_image = imutils.rotate_bound(np.float_(image), angle)
+    return rotated_image
+
+
+def tesseract_ocr(image):
+    # Input: image to perform OCR on.
+    # Output: extracted text.
+    try:
+        ocr = pytesseract.image_to_string(image, config="--psm 11 script=Latin")
+    except:
+        ocr = pytesseract.image_to_string(
+            np.uint8(image), config="--psm 11 script=Latin"
+        )
+    return ocr
 
 
 def get_textbox_details(box):
@@ -197,41 +217,72 @@ def get_box_details(c):
     return minx, maxx, miny, maxy
 
 
-def find_neighbouring_boxes(all_boxes, pixel_proximity_bound=110):
+def find_neighbouring_boxes(
+    all_boxes, pixel_proximity_bound=110, pixel_proximity_bound_x=700
+):
     # Input: all textboxes, proximity bound (to define closeness between boxes)
     # Output: Maximum y coordinates of textboxes, and index of textboxes (grouped based on proximity to one another).
     all_y = []
-    all_y_inds = []
+    all_x = []
+    all_inds = []
 
     for u, box in enumerate(all_boxes):
         new_join = False
-        _, _, _, maxy = get_textbox_details(box)
+        _, maxx, _, maxy = get_textbox_details(box)
         for v, ys in enumerate(all_y):
+            xs = all_x[v]
             join = False
-            for y in ys:
-                if abs(y - maxy) <= pixel_proximity_bound:
+            for i, y in enumerate(ys):
+                x = xs[i]
+                if (abs(y - maxy) <= pixel_proximity_bound) and (
+                    abs(x - maxx) <= pixel_proximity_bound_x
+                ):
                     join = True
                     break
             if join is True:
                 ys.append(maxy)
-                inds = all_y_inds[v]
+                xs.append(maxx)
+                inds = all_inds[v]
                 inds.append(u)
                 all_y[v] = ys
-                all_y_inds[v] = inds
+                all_x[v] = xs
+                all_inds[v] = inds
                 new_join = True
                 break
         if new_join is False:
             all_y.append([maxy])
-            all_y_inds.append([u])
-    return all_y, all_y_inds
+            all_x.append([maxx])
+            all_inds.append([u])
+    return all_y, all_inds
 
 
-def combine_boxes(all_boxes, all_y_inds):
+def check_orientation_of_neighbouring_boxes(all_boxes, all_inds):
+    new_all_inds = []
+    for inds in all_inds:
+        orientations = []
+        for i in inds:
+            box = all_boxes[i]
+            orientations.append(detect_orientation(box[:, 0], box[:, 1]))
+        if len(np.unique(orientations)) == 1:
+            new_all_inds.append(inds)
+        else:
+            vertical_boxes_inds = np.where(np.array(orientations) == "v")[0]
+            vertical_boxes_inds = list(np.array(inds)[vertical_boxes_inds])
+            horizontal_boxes_inds = np.where(np.array(orientations) == "h")[0]
+            horizontal_boxes_inds = list(np.array(inds)[horizontal_boxes_inds])
+            new_all_inds.append(vertical_boxes_inds)
+            new_all_inds.append(horizontal_boxes_inds)
+    return new_all_inds
+
+
+def combine_boxes(all_boxes, all_inds):
     # Input: Textboxes, Index of grouped textboxes (based on proximity)
     # Output: Possibly reformatted textboxes (merged if close to one another).
     new_all_boxes = []
+    # Note: we check if the grouped textboxes have the same orientation:
+    all_inds = check_orientation_of_neighbouring_boxes(all_boxes, all_inds)
 
-    for u, inds in enumerate(all_y_inds):
+    for u, inds in enumerate(all_inds):
         if len(inds) == 1:
             box = all_boxes[inds[0]]
             new_all_boxes.append(box)
@@ -296,14 +347,18 @@ def get_box_index_for_textboxes(craft_textboxes, eggcard_boxes, textbox_leeway=1
     return textbox_box_index
 
 
-def get_text_from_box(image, textboxes, cropping_leeway=10):
+def get_text_from_box(image, textboxes, cropping_leeway=10, binarize=False):
     # Input: image, box contour, filtered textboxes (from CRAFT), textbox leeway, cropping leeway.
     # Output: extracted text from box.
 
     final_text = []
 
+    # Refine textboxes (combine neighbouring ones):
+    textboxes = refine_boxes(textboxes)
+
     # Loop through textboxes:
     all_h_or_v = []
+
     for box in textboxes:
         # Get text box details:
         horizontal_or_vertical = detect_orientation(box[:, 0], box[:, 1])
@@ -313,21 +368,30 @@ def get_text_from_box(image, textboxes, cropping_leeway=10):
         if len(textboxes) == 1:
             # If there's only one horizontal text box within a box, use textbox for ocr.
             box = textboxes[0]
-            ocr, I = get_text(image, box[:, 0], box[:, 1], leeway=cropping_leeway)
+            ocr, I = get_text(
+                image, box[:, 0], box[:, 1], leeway=cropping_leeway, binarize=binarize
+            )
             ocr = ocr.replace("\n", " ").replace("\x0c", "")
             final_text.append(ocr)
         else:
             all_text = []
-            new_boxes = refine_boxes(textboxes)
-            for box in new_boxes:
-                ocr, I = get_text(image, box[:, 0], box[:, 1], leeway=cropping_leeway)
+            for box in textboxes:
+                ocr, I = get_text(
+                    image,
+                    box[:, 0],
+                    box[:, 1],
+                    leeway=cropping_leeway,
+                    binarize=binarize,
+                )
                 ocr = ocr.replace("\n", " ").replace("\x0c", "")
                 all_text.append(ocr)
             final_text.append(all_text)
     else:
         all_text = []
         for box in textboxes:
-            ocr, I = get_text(image, box[:, 0], box[:, 1], leeway=cropping_leeway)
+            ocr, I = get_text(
+                image, box[:, 0], box[:, 1], leeway=cropping_leeway, binarize=binarize
+            )
             ocr = ocr.replace("\n", " ").replace("\x0c", "").replace("|", "")
             all_text.append(ocr)
         final_text.append(all_text)
@@ -404,7 +468,7 @@ def plot_boxes_and_textboxes(
 box_plot_outdir = "/home/arias1/Documents/GitHub/egg_cards/Images/Drawer_58/box_results"
 
 
-def extract_text_from_eggcard(image_path, plot_boxes=False):
+def extract_text_from_eggcard(image_path, plot_boxes=False, binarize=False):
     # Input: image path
     # Output: text from image
 
@@ -429,7 +493,7 @@ def extract_text_from_eggcard(image_path, plot_boxes=False):
         if len(indexes) > 0:
             filtered_textboxes = craft_textboxes[indexes]
             try:
-                text = get_text_from_box(image, filtered_textboxes)
+                text = get_text_from_box(image, filtered_textboxes, binarize=binarize)
                 all_text.append(text)
             except:
                 all_text.append("N/A")
