@@ -5,3 +5,5 @@ outputs/*
 tests/*
 .ipynb_checkpoints/
 __pycache__/
+*.csv
+*.npy

@@ -465,7 +465,7 @@ def plot_boxes_and_textboxes(
 # ONE FUNCTION
 ###############
 
-box_plot_outdir = "/home/arias1/Documents/GitHub/egg_cards/Images/Drawer_58/box_results"
+box_plot_outdir = "/home/arias1/Documents/GitHub/egg_cards/Images/Drawer_41/plots"
 
 
 def extract_text_from_eggcard(image_path, plot_boxes=False, binarize=False):

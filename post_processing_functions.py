@@ -73,7 +73,7 @@ def process_ocr_text(text):
     all_text_segments = []
     for t in text:
         typ = type(t[0])
-        if typ == list:
+        if (typ == list) or (typ == np.ndarray):
             for p in t[0]:
                 all_text_segments.append(p)
         else:
@@ -200,6 +200,20 @@ def find_key_terms_backup(
                     found_key_terms[keyword] = i
                     text_terms_copy[i] = [keyword]
                     break
+
+    if "date" not in list(found_key_terms.keys()):
+        pos_date = ""
+        pos_date_ind = 0
+        for i, txt in enumerate(all_text_segments):
+            if type(text_terms_copy[i]) is str:
+                if does_text_contain_date(txt):
+                    if len(txt) > len(pos_date):
+                        pos_date = deepcopy(txt)
+                        pos_date_ind = deepcopy(i)
+        if pos_date != "":
+            found_key_terms["date"] = i
+            text_terms_copy[i] = ["date"]
+
     return found_key_terms, text_terms_copy
 
 
@@ -272,7 +286,7 @@ def get_index_of_nontaxon_text(text_terms):
     return index_list
 
 
-def find_species_results(all_text_segments, non_taxon_list):
+def find_species_results(all_text_segments, non_taxon_list, backup=False):
     # Input: all text segments from card (OCR output); text index for non-taxonomic text.
     # Output: species name, index in text segments, GBIF API results.
     species_name = ""
@@ -280,32 +294,64 @@ def find_species_results(all_text_segments, non_taxon_list):
     species_results = ""
 
     for u, t in enumerate(all_text_segments):
-        text_ = re.findall("[a-zA-Z]+", t)
-        text_ = " ".join(map(str, text_))
-        if (u not in non_taxon_list) and (len(text_) > 3):
-            r = species.name_lookup(text_)
-            if len(r["results"]) > 0:
-                in_name = False
-                for j in taxon_terms:
-                    try:
-                        res = r["results"][0][j]
-                        if res.lower() in t.lower():
-                            in_name = True
-                    except:
-                        pass
-                if in_name is True:
-                    species_name = deepcopy(t)
-                    species_index = deepcopy(u)
-                    species_results = r["results"]
-            else:
-                t_ = re.findall("[a-zA-Z]+", t)
-                if len(t_) == 3:
-                    sp = " ".join(map(str, t_[:2]))
-                    r = species.name_lookup(sp)
-                    if len(r["results"]) > 0:
+        try:
+            text_ = re.findall("[a-zA-Z]+", t)
+            text_ = " ".join(map(str, text_))
+            if (u not in non_taxon_list) and (len(text_) > 3):
+                r = species.name_lookup(text_, kingdom="animals", CLASS="Aves")
+                if len(r["results"]) > 0:
+                    in_name = False
+                    for j in taxon_terms:
+                        try:
+                            res = r["results"][0][j]
+                            if res.lower() in t.lower():
+                                in_name = True
+                        except:
+                            pass
+                    if in_name is True:
                         species_name = deepcopy(t)
                         species_index = deepcopy(u)
                         species_results = r["results"]
+                else:
+                    t_ = re.findall("[a-zA-Z]+", t)
+                    if len(t_) == 3:
+                        sp = " ".join(map(str, t_[:2]))
+                        r = species.name_lookup(sp, kingdom="animals", CLASS="Aves")
+                        if len(r["results"]) > 0:
+
+                            in_name = False
+
+                            for j in taxon_terms:
+                                try:
+                                    res = r["results"][0][j]
+                                    if res.lower() in t.lower():
+                                        in_name = True
+                                except:
+                                    pass
+                            if in_name:
+                                species_name = deepcopy(t)
+                                species_index = deepcopy(u)
+                                species_results = r["results"]
+
+                if backup:
+                    if species_name == "":
+                        words_sep = re.findall("[a-zA-Z]+", t)
+                        if len(words_sep) < 4:
+                            for w_ in words_sep:
+                                if len(w_) > 4:
+                                    try:
+                                        r = species.name_lookup(
+                                            w_, kingdom="animals", CLASS="Aves"
+                                        )
+                                        if len(r["results"]) > 0:
+                                            species_name = deepcopy(t)
+                                            species_index = deepcopy(u)
+                                            species_results = r["results"]
+                                    except:
+                                        pass
+
+        except:
+            pass
 
     return species_name, species_index, species_results
 
@@ -316,17 +362,18 @@ def find_species_results_backup(all_text_segments):
     name = []
     results = []
     for u, t in enumerate(all_text_segments):
-        text_ = re.findall("[a-zA-Z]+", t)
-        for txt in text_:
-            r = species.name_lookup(txt)
-            if len(r["results"]) > 0:
-                try:
-                    cl = r["results"][0]["class"]
-                    if cl == "Aves":
-                        name.append(txt)
-                        results.append(r["results"])
-                except:
-                    pass
+        if len(t) > 0:
+            text_ = re.findall("[a-zA-Z]+", t)
+            for txt in text_:
+                r = species.name_lookup(txt, kingdom="animals")
+                if len(r["results"]) > 0:
+                    try:
+                        cl = r["results"][0]["class"]
+                        if cl == "Aves":
+                            name.append(txt)
+                            results.append(r["results"])
+                    except:
+                        pass
     return name, results
 
 
@@ -350,12 +397,12 @@ def filter_species_results(names, results):
     return filtered_words, filtered_results
 
 
-def find_species_from_text(all_text_segments, non_taxon_list):
+def find_species_from_text(all_text_segments, non_taxon_list, backup=False):
     # Main function to extract taxonomic information / GBIF API from text segments.
     # Input: all text segments (OCR results), text index for non-taxonomic text.
     # Output: species name (from card), GBIF API results.
     species_name, _, species_results = find_species_results(
-        all_text_segments, non_taxon_list
+        all_text_segments, non_taxon_list, backup=backup
     )
     if species_name == "":
         # If empty, use backup method:
@@ -547,7 +594,10 @@ def get_all_egg_card_results(folder_path, filename):
         all_text_segments, non_taxon_list
     )
     taxon = get_taxon_info(species_name, species_results)
-    species_name_ = " ".join(map(str, re.findall("\S+", species_name)))
+    try:
+        species_name_ = " ".join(map(str, re.findall("\S+", species_name)))
+    except:
+        species_name_ = deepcopy(species_name)
     # Add taxon info to dictionary
     if len(species_name_) > 150:
         species_name_ = "N/A"
