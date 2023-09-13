@@ -571,7 +571,7 @@ def check_localities(locality, remText):
 #####################
 
 
-def make_corrections_to_data(path_to_data):
+def make_corrections_to_data(path_to_data, correct_all=True):
     # 1) Load CSV containing egg card info per id:
     results = pd.read_csv(path_to_data)
 
@@ -609,7 +609,7 @@ def make_corrections_to_data(path_to_data):
     results_v3 = redo_weird_species(remtext_copy, weird_sp_inds, weird_sp, results_v2)
 
     # 7) Define variables from latest dataframe:
-    remText = results_v3["remainingText"].apply(literal_eval)
+    remText = results_v3["remainingText"]
     set_mark = results_v3["setMark"]
     noeggs = results_v3["noOfEggs"]
     locality = results_v3["locality"]
@@ -625,7 +625,10 @@ def make_corrections_to_data(path_to_data):
     new_collections = check_collector(collector, locality, remText)
 
     # 10) Correct locality:
-    new_localities = check_localities(locality, remText)
+    if correct_all:
+        new_localities = check_localities(locality, remText)
+    else:
+        new_localities = deepcopy(locality)
 
     # 11) Update dataframe:
     results_final = deepcopy(results_v3)
