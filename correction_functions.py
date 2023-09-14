@@ -530,11 +530,11 @@ def check_localities(locality, remText):
     weird_locality, weird_locality_inds = find_weird_results(locality, 3, 150)
     possible_localities = deepcopy(locality)
 
-    for ind in weird_locality_inds:
+    for i, ind in enumerate(weird_locality_inds):
         location = ""
 
         # Check for locality data in the super long original text:
-        original = weird_locality[ind]
+        original = weird_locality[i]
         try:
             orig_len = len(original)
         except:
@@ -609,11 +609,11 @@ def make_corrections_to_data(path_to_data, correct_all=True):
     results_v3 = redo_weird_species(remtext_copy, weird_sp_inds, weird_sp, results_v2)
 
     # 7) Define variables from latest dataframe:
-    remText = results_v3["remainingText"]
-    set_mark = results_v3["setMark"]
-    noeggs = results_v3["noOfEggs"]
-    locality = results_v3["locality"]
-    collector = results_v3["collector"]
+    remText = list(results_v3["remainingText"])
+    set_mark = list(results_v3["setMark"])
+    noeggs = list(results_v3["noOfEggs"])
+    locality = list(results_v3["locality"])
+    collector = list(results_v3["collector"])
 
     # 7) Verify number of eggs:
     new_noeggs, _ = check_no_eggs(noeggs, set_mark, locality, remText)
