@@ -506,7 +506,7 @@ def verify_and_filter_boxes(egg_boxes, index):
 
     # 4) Date / set mark / no. eggs boxes (third highest horizontal boxes):
     datsetegg_ind = index[list(index.keys())[2]]
-    if len(loccol_ind) == 3:
+    if len(datsetegg_ind) == 3:
         box1 = egg_boxes[datsetegg_ind[0]]
         box2 = egg_boxes[datsetegg_ind[1]]
         box3 = egg_boxes[datsetegg_ind[2]]
