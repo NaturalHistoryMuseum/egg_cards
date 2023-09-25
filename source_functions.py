@@ -327,20 +327,28 @@ def refine_boxes(all_boxes, pixel_proximity_bound=110):
         return new_boxes
 
 
-def get_box_index_for_textboxes(craft_textboxes, eggcard_boxes, textbox_leeway=10):
+def get_box_index_for_textboxes(
+    craft_textboxes, eggcard_boxes, textbox_leeway=10, show_NA=False
+):
     # Input: boxe contours, textboxes (from CRAFT), leeway (in pixels) for textbox.
     # Output: dictionary of box index for each textbox.
     textbox_box_index = {}
+    all_box_details = [get_box_details(box_contour) for box_contour in eggcard_boxes]
+    areas = [(b[1] - b[0]) * (b[3] - b[2]) for b in all_box_details]
+    biggest_box_ind = np.argmax(areas)
 
     for u, box in enumerate(craft_textboxes):
         textbox_minx, textbox_maxx, textbox_miny, textbox_maxy = get_textbox_details(
             box
         )
         box_size = np.inf
-        box_index = 0
+        if show_NA is False:
+            box_index = deepcopy(biggest_box_ind)
+        else:
+            box_index = "N/A"
         for index, box_contour in enumerate(eggcard_boxes):
-            box_minx, box_maxx, box_miny, box_maxy = get_box_details(box_contour)
-            area = (box_maxx - box_minx) * (box_maxy - box_miny)
+            box_minx, box_maxx, box_miny, box_maxy = all_box_details[index]
+            area = areas[index]
             if all(
                 (
                     (textbox_minx >= box_minx - textbox_leeway),
