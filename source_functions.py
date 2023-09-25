@@ -93,19 +93,28 @@ def get_max_bounds(contours, xbound=10, ybound=12):
     return xb, yb
 
 
-def filter_contours(contours, xbound, ybound):
+def filter_contours(
+    contours, xbound, ybound, min_contour_length=50, additional_filters=True
+):
     # Input: contours, xbound, ybound
     # Output: contours around boxes within egg card.
     area_lower_bound = (xbound * ybound) / 5
     final_contours = []
     for contour in contours:
-        if len(contour[:, 0]) > 50:
+        if len(contour[:, 0]) > min_contour_length:
             range_x = max(contour[:, 1]) - min(contour[:, 1])
             range_y = max(contour[:, 0]) - min(contour[:, 0])
-            area = cv2.contourArea(contour.astype(int))
-            if ((range_x > xbound) or (range_y > ybound)) and (area > area_lower_bound):
-                X, Y = contour[:, 1], contour[:, 0]
-                if X[0] == X[-1]:
+            if additional_filters is True:
+                area = cv2.contourArea(contour.astype(int))
+                if ((range_x > xbound) or (range_y > ybound)) and (
+                    area > area_lower_bound
+                ):
+                    X, Y = contour[:, 1], contour[:, 0]
+                    if X[0] == X[-1]:
+                        final_contours.append([X, Y])
+            else:
+                if (range_x > xbound) or (range_y > ybound):
+                    X, Y = contour[:, 1], contour[:, 0]
                     final_contours.append([X, Y])
     return final_contours
 
@@ -331,7 +340,7 @@ def get_box_index_for_textboxes(craft_textboxes, eggcard_boxes, textbox_leeway=1
         box_index = 0
         for index, box_contour in enumerate(eggcard_boxes):
             box_minx, box_maxx, box_miny, box_maxy = get_box_details(box_contour)
-            area = box_maxx * box_maxy
+            area = (box_maxx - box_minx) * (box_maxy - box_miny)
             if all(
                 (
                     (textbox_minx >= box_minx - textbox_leeway),
