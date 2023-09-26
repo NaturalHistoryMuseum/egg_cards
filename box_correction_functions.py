@@ -249,11 +249,12 @@ def find_area(box):
     return area
 
 
-def group_boxes(egg_boxes, reg_box_ind, bound=50, area_lower_bound=500):
+def group_boxes(egg_boxes, reg_box_ind, bound=50, area_lower_bound=900):
     group_index = {}
     k = 0
     for i, box in enumerate(egg_boxes):
-        if (i != reg_box_ind) and (find_area(box) > area_lower_bound):
+        h_v = detect_orientation(box[0], box[1])
+        if (i != reg_box_ind) and (find_area(box) > area_lower_bound) and (h_v != "v"):
             avg_y = np.average(box[1])
             if len(group_index) == 0:
                 group_index.update({k: {"index": [i], "vals": [avg_y]}})
@@ -299,18 +300,41 @@ def get_boundary_for_group_of_boxes(egg_boxes, inds):
     return min_x, max_x, min_y, max_y
 
 
-def species_check_index_correction(egg_boxes, index, limit=100):
+def species_check_index_correction(egg_boxes, index, limit=120):
     new_index = deepcopy(index)
-    if len(index[0]) > 1:
-        mins = [min(egg_boxes[i][1]) for i in index[0]]
-        min_y = min(mins)
-        reg_min = min(egg_boxes[list(index.values())[-1][0]][1])
-        if abs(reg_min - min_y) > limit:
-            new_index = {}
-            new_index[0] = ["N/A"]
-            for ky in list(index.keys()):
-                new_index[ky + 1] = index[ky]
+    mins = [min(egg_boxes[i][1]) for i in index[0]]
+    min_y = min(mins)
+    reg_min = min(egg_boxes[list(index.values())[-1][0]][1])
+    if abs(reg_min - min_y) > limit:
+        new_index = {}
+        new_index[0] = ["N/A"]
+        for ky in list(index.keys()):
+            new_index[ky + 1] = index[ky]
     return new_index
+
+
+def remove_spare_vertical_boxes_from_eggboxes(egg_boxes, reg_box_ind):
+    all_boxes = []
+    new_reg_box_ind = deepcopy(reg_box_ind)
+    k = -1
+    for i, box in enumerate(egg_boxes):
+        h_v = detect_orientation(box[0], box[1])
+        if (h_v == "h") or ((h_v == "v") and (i == reg_box_ind)):
+            k = k + 1
+            all_boxes.append(box)
+        if i == reg_box_ind:
+            new_reg_box_ind = deepcopy(k)
+    return all_boxes, new_reg_box_ind
+
+
+def sort_boxes_in_y_order(egg_boxes):
+    _, _, ymin, _ = get_boundary_for_group_of_boxes(
+        egg_boxes, list(range(len(egg_boxes)))
+    )
+    egg_boxes_sorted = []
+    for ind in np.argsort(ymin):
+        egg_boxes_sorted.append(egg_boxes[ind])
+    return egg_boxes_sorted
 
 
 ######################
@@ -408,8 +432,8 @@ def refine_group1_box(egg_boxes, index, verification_bound=100, split=0.6):
 
     # We check whether the x coordinates of the boundary of this group are roughly correct.
     correct = True
-    if (len(index[0]) == 1) or (len(index[2]) == 3):
-        if len(index[0]) == 1:
+    if ((len(index[0]) == 1) and (index[0][0] != "N/A")) or (len(index[2]) == 3):
+        if (len(index[0]) == 1) and (index[0][0] != "N/A"):
             box = egg_boxes[index[0][0]]
             box_minx, box_maxx, _, _ = get_box_details(box)
         else:
@@ -460,8 +484,8 @@ def refine_group2_box(
 
     # We check whether the x coordinates of the boundary of this group are roughly correct.
     correct = True
-    if (len(index[0]) == 1) or (len(index[1]) == 2):
-        if len(index[0]) == 1:
+    if ((len(index[0]) == 1) and (index[0][0] != "N/A")) or (len(index[1]) == 2):
+        if (len(index[0]) == 1) and (index[0][0] != "N/A"):
             box = egg_boxes[index[0][0]]
             box_minx, box_maxx, _, _ = get_box_details(box)
         else:
@@ -588,9 +612,13 @@ def get_boxes_and_labels(image_path):
         contours, xbound, ybound, additional_filters=False
     )
     egg_boxes = split_eggcard_boxes(eggcard_boxes_sk)
-    reg_box, reg_box_ind = find_reg_box(egg_boxes)
-    index = group_boxes(egg_boxes, reg_box_ind, bound=50)
-    index = species_check_index_correction(egg_boxes, index)
-    boxes_ref = verify_and_filter_boxes(egg_boxes, index)
+    egg_boxes_sorted = sort_boxes_in_y_order(egg_boxes)
+    _, reg_box_ind = find_reg_box(egg_boxes_sorted)
+    egg_boxes_refined, reg_box_ind = remove_spare_vertical_boxes_from_eggboxes(
+        egg_boxes_sorted, reg_box_ind
+    )
+    index = group_boxes(egg_boxes_refined, reg_box_ind, bound=50)
+    index = species_check_index_correction(egg_boxes_refined, index)
+    boxes_ref = verify_and_filter_boxes(egg_boxes_refined, index)
 
     return boxes_ref, img_sk
