@@ -299,6 +299,20 @@ def get_boundary_for_group_of_boxes(egg_boxes, inds):
     return min_x, max_x, min_y, max_y
 
 
+def species_check_index_correction(egg_boxes, index, limit=100):
+    new_index = deepcopy(index)
+    if len(index[0]) > 1:
+        mins = [min(egg_boxes[i][1]) for i in index[0]]
+        min_y = min(mins)
+        reg_min = min(egg_boxes[list(index.values())[-1][0]][1])
+        if abs(reg_min - min_y) > limit:
+            new_index = {}
+            new_index[0] = ["N/A"]
+            for ky in list(index.keys()):
+                new_index[ky + 1] = index[ky]
+    return new_index
+
+
 ######################
 # 1) Registration Box
 ######################
@@ -363,6 +377,19 @@ def refine_group0_box(egg_boxes, index, bound=20):
         new_box = [new_box_x, new_box_y]
 
     return new_box
+
+
+def backup_species_box_method(egg_boxes, index):
+    reg_box = egg_boxes[list(index.values())[-1][0]]
+    x_min = max(reg_box[0])
+    maxs = [max(b[0]) for b in egg_boxes]
+    x_max = max(maxs)
+    y_min = min(reg_box[1])
+    mins = [min(egg_boxes[i][1]) for i in index[1]]
+    y_max = min(mins)
+    box_x = [x_min, x_min, x_max, x_max, x_min]
+    box_y = [y_min, y_max, y_max, y_min, y_min]
+    return [box_x, box_y]
 
 
 ###############################
@@ -469,9 +496,9 @@ def refine_group2_box(
     return [x1, y], [x2, y], [x3, y]
 
 
-###############
-# Main Function
-###############
+################
+# Main Functions
+################
 
 
 def verify_and_filter_boxes(egg_boxes, index):
@@ -483,8 +510,11 @@ def verify_and_filter_boxes(egg_boxes, index):
     # 2) Species box (highest horizontal box):
     species_ind = index[list(index.keys())[0]]
     if len(species_ind) == 1:
-        species_ind = species_ind[0]
-        species_box = egg_boxes[species_ind]
+        if species_ind[0] != "N/A":
+            species_ind = species_ind[0]
+            species_box = egg_boxes[species_ind]
+        else:
+            species_box = backup_species_box_method(egg_boxes, index)
     else:
         species_box = refine_group0_box(egg_boxes, index)
 
@@ -546,3 +576,21 @@ def verify_and_filter_boxes(egg_boxes, index):
     all_boxes["other"] = rem_box
 
     return all_boxes
+
+
+def get_boxes_and_labels(image_path):
+    img_sk = io.imread(image_path)
+    contours = find_all_contours(cv2.cvtColor(img_sk, cv2.COLOR_BGR2GRAY))
+    # Get boundary thresholds for box definition:
+    xbound, ybound = get_max_bounds(contours)
+    # Filter for box contours:
+    eggcard_boxes_sk = filter_contours(
+        contours, xbound, ybound, additional_filters=False
+    )
+    egg_boxes = split_eggcard_boxes(eggcard_boxes_sk)
+    reg_box, reg_box_ind = find_reg_box(egg_boxes)
+    index = group_boxes(egg_boxes, reg_box_ind, bound=50)
+    index = species_check_index_correction(egg_boxes, index)
+    boxes_ref = verify_and_filter_boxes(egg_boxes, index)
+
+    return boxes_ref, img_sk
