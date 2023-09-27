@@ -13,7 +13,6 @@ from ast import literal_eval
 from dateparser.search import search_dates
 from post_processing_functions import find_species_from_text, get_taxon_info
 
-
 ########
 # Terms
 ########
@@ -108,7 +107,7 @@ def check_for_word_in_text(original_text, words, use_text=True):
         text = deepcopy(original_text)
     in_word = False
     for word in words:
-        if word in text.lower():
+        if word in lower_(text):
             in_word = True
     return in_word, text, original_text
 
@@ -128,6 +127,14 @@ def find_words_(texts_to_check, keywords, word_limit_min=0, word_limit_max=200):
             new_text = deepcopy(text)
             break
     return in_word, new_text
+
+
+def lower_(text):
+    try:
+        text_ = text.lower()
+    except:
+        text_ = str(text).lower()
+    return text_
 
 
 #################
@@ -467,14 +474,14 @@ def check_collector(collections, localities, remText):
         texts = remText[ind]
         collector_ = ""
         for text in texts:
-            if ("collection" in text.lower()) or ("collector" in text.lower()):
+            if ("collection" in lower_(text)) or ("collector" in lower_(text)):
                 if (len(text) > len(collector_)) and (len(text) < 100):
                     collector_ = deepcopy(text)
 
         if collector_ == "":
             text = localities[ind]
             if is_nan_(text) is False:
-                if ("collection" in text.lower()) or ("collector" in text.lower()):
+                if ("collection" in lower_(text)) or ("collector" in lower_(text)):
                     collector_ = deepcopy(text)
 
         possible_collections[ind] = collector_
@@ -504,23 +511,27 @@ except:
 def get_locations_from_text(text, entity_labels=["GPE", "LOC", "FAC"]):
     locations = []
 
-    text = text.replace("-", "")
+    try:
 
-    doc = nlp(text)
-    for entity in doc.ents:
-        if (
-            (entity.label_ in entity_labels)
-            and (entity not in locations)
-            and (len(entity.text) > 2)
-        ):
-            txt = entity.text
-            numbers = re.findall("\d", txt)
-            letters = re.findall("[a-zA-Z]", txt)
-            if (len(numbers) < 3) and (len(letters) > 2):
-                locations.append(entity)
-    if len(locations) > 0:
-        loc_ = ", ".join(map(str, locations))
-    else:
+        text = text.replace("-", "")
+
+        doc = nlp(text)
+        for entity in doc.ents:
+            if (
+                (entity.label_ in entity_labels)
+                and (entity not in locations)
+                and (len(entity.text) > 2)
+            ):
+                txt = entity.text
+                numbers = re.findall("\d", txt)
+                letters = re.findall("[a-zA-Z]", txt)
+                if (len(numbers) < 3) and (len(letters) > 2):
+                    locations.append(entity)
+        if len(locations) > 0:
+            loc_ = ", ".join(map(str, locations))
+        else:
+            loc_ = "N/A"
+    except:
         loc_ = "N/A"
 
     return loc_
@@ -571,7 +582,7 @@ def check_localities(locality, remText):
 #####################
 
 
-def make_corrections_to_data(path_to_data, correct_all=True):
+def make_corrections_to_data(path_to_data, correct_all=True, apply_ast=True):
     # 1) Load CSV containing egg card info per id:
     results = pd.read_csv(path_to_data)
 
@@ -579,7 +590,13 @@ def make_corrections_to_data(path_to_data, correct_all=True):
     dates = results["date"]
     set_mark = results["setMark"]
     noeggs = results["noOfEggs"]
-    remtext = results["remainingText"].apply(literal_eval)
+    if apply_ast:
+        remtext = results["remainingText"].apply(literal_eval)
+    else:
+        remtext = results["remainingText"]
+        for i, r in enumerate(remtext):
+            remtext[i] = [r]
+
     reg_no = results["registrationNumber"]
     species = results["cardSpecies"]
 
@@ -588,13 +605,20 @@ def make_corrections_to_data(path_to_data, correct_all=True):
     set_mark_copy, noeggs_copy, dates_copy, inds_to_update = update_dates(
         weird_ids, set_mark, noeggs, dates
     )
-    remtext_copy, newdates_copy = double_check_dates(
-        dates_copy, dates, remtext, inds_to_update, weird_ids
-    )
+    try:
+        remtext_copy, newdates_copy = double_check_dates(
+            dates_copy, dates, remtext, inds_to_update, weird_ids
+        )
+    except:
+        remtext_copy = deepcopy(remtext)
+        newdates_copy = deepcopy(dates)
 
     # 4) Find missing registration numbers:
-    _, weird_ids_reg = find_weird_results(reg_no, 3, 100)
-    reg_no_copy = backup_reg(weird_ids_reg, remtext_copy, reg_no)
+    try:
+        _, weird_ids_reg = find_weird_results(reg_no, 3, 100)
+        reg_no_copy = backup_reg(weird_ids_reg, remtext_copy, reg_no)
+    except:
+        reg_no_copy = deepcopy(reg_no)
 
     # 5) Put results so far into new dataframe:
     results_v2 = deepcopy(results)
@@ -638,3 +662,187 @@ def make_corrections_to_data(path_to_data, correct_all=True):
     results_final["locality"] = new_localities
 
     return results_final
+
+
+##########################
+# New Correction Functions
+##########################
+
+from text_extraction_functions import remove_category_from_text
+
+
+def new_is_reg_weird(reg):
+    weird = False
+    if is_nan_(reg):
+        weird = True
+    elif (len(re.findall("\d+", reg)) <= 1) or (len(str(reg)) > 60):
+        weird = True
+
+    return weird
+
+
+def new_is_locality_weird(locality):
+    weird = False
+    if is_nan_(locality):
+        weird = True
+    elif len(str(locality)) > 100:
+        weird = True
+    else:
+        loc = get_locations_from_text(
+            locality, entity_labels=["GPE", "LOC", "FAC", "ORG"]
+        )
+        if loc == "N/A":
+            weird = True
+    return weird
+
+
+def new_is_date_weird(date):
+    weird = False
+    if is_nan_(date):
+        weird = True
+    elif len(str(date)) > 70:
+        weird = True
+    else:
+        d = len(re.findall("\d", date))
+        date_present = is_date_present(date)
+        if (len(str(d)) < 2) and (date_present is False):
+            weird = True
+    return weird
+
+
+def is_word_mentioned(word, text):
+    text = text.replace("no.", "no").replace("No.", "No")
+    txt_ = re.findall("\w+", text)
+    txt = " ".join(map(str, txt_))
+
+    if word in txt.lower():
+        return True
+    else:
+        return False
+
+
+def new_find_reg(txt):
+
+    r = re.findall("\d+[.,]\d+[.,]\d+", txt)
+    if len(r) > 0:
+        new_reg = deepcopy(r)
+    else:
+        r = re.findall("\d+[.,][A-Z]+[.,]\d+", txt)
+        if len(r) > 0:
+            new_reg = deepcopy(r)
+        else:
+            txt_ = remove_category_from_text("reg no", txt)
+            if len(str(txt_)) < 30:
+                new_reg = deepcopy(txt_)
+            else:
+                new_reg = "N/A"
+
+    return new_reg
+
+
+def new_find_date(text):
+    new_date = search_dates(text)
+    if new_date is None:
+        new_date = "N/A"
+    else:
+        new_date = check_date(new_date)
+    return new_date
+
+
+def check_date(d_):
+    date_ = []
+    is_date = True
+    for p in d_:
+        if (p[1].year == 2023) and (p[1].month == 9):
+            is_date = False
+        else:
+            is_date = True
+            date_.append(p[0])
+    if is_date:
+        if len(date_) > 1:
+            final_date = ", ".join(map(str, date_))
+        else:
+            final_date = date_[0]
+        return final_date
+    else:
+        return "N/A"
+
+
+def new_find_locality(locality):
+    locality_ = remove_category_from_text("locality", locality)
+    loc = get_locations_from_text(locality_, entity_labels=["GPE", "LOC", "FAC", "ORG"])
+    if loc == "N/A":
+        if len(str(locality_)) < 75:
+            final_locality = deepcopy(locality_)
+        else:
+            final_locality = "N/A"
+    else:
+        final_locality = deepcopy(loc)
+    return final_locality
+
+
+key_columns_ = [
+    "registrationNumber",
+    "locality",
+    "cardSpecies",
+    "collector",
+    "date",
+    "setMark",
+    "noOfEggs",
+    "remainingText",
+]
+
+
+def new_is_word_present(sample, word):
+    possible_text = []
+    for key in key_columns_:
+        text = sample[key]
+        if is_word_mentioned(word, str(text)):
+            possible_text.append(text)
+    return possible_text
+
+
+def new_correction_check(sample):
+    date = sample["date"]
+    regno = sample["registrationNumber"]
+    loc = sample["locality"]
+    # 1) Date
+    if new_is_date_weird(date):
+        possible_text = new_is_word_present(sample, "date")
+        if len(possible_text) > 0:
+            pos_dates = ""
+            for t in possible_text:
+                d = new_find_date(t)
+                if (d != "N/A") and (len(str(d)) > len(pos_dates)):
+                    pos_dates = deepcopy(d)
+            sample["date"] = pos_dates
+        elif len(str(date)) > 40:
+            sample["date"] = ""
+
+    # 2) Reg Number
+    if new_is_reg_weird(regno):
+        possible_text = new_is_word_present(sample, "reg no")
+        if len(possible_text) > 0:
+            pos_reg = ""
+            for t in possible_text:
+                r = new_find_reg(t)
+                if (r != "N/A") and (len(str(r)) > len(pos_reg)):
+                    pos_reg = deepcopy(r)
+            sample["registrationNumber"] = pos_reg
+        elif len(str(regno)) > 20:
+            sample["registrationNumber"] = ""
+
+    # 3) Locality
+    if new_is_locality_weird(loc):
+        possible_text = new_is_word_present(sample, "locality")
+        if len(possible_text) > 0:
+            pos_loc = ""
+            for t in possible_text:
+                l = new_find_locality(t)
+                if (l != "N/A") and (len(str(l)) > len(pos_loc)):
+                    pos_loc = deepcopy(l)
+            sample["locality"] = pos_loc
+        elif len(str(loc)) > 50:
+            sample["locality"] = ""
+
+    return sample

@@ -152,7 +152,15 @@ def crop_image(image, box_x, box_y, leeway=0):
     return img_cropped
 
 
-def get_text(image, box_x, box_y, leeway=0, binarize=False):
+def get_text(
+    image,
+    box_x,
+    box_y,
+    leeway=0,
+    binarize=False,
+    check_orientation=True,
+    compare_numbers_count=False,
+):
     # Input: image, x coordinates of box contour, y coordinates of box contour, leeway for cropping.
     # Output: text, cropped image.
 
@@ -167,7 +175,8 @@ def get_text(image, box_x, box_y, leeway=0, binarize=False):
     # 3) Find text:
     # If box is horizontal, we assume text is written the right way up.
     # For vertical boxes, we take the longest text found when rotated.
-    if horizontal_or_vertical == "h":
+
+    if (horizontal_or_vertical == "h") or (check_orientation is False):
         ocr_results = tesseract_ocr(image_cropped)
     else:
         # Rotate 90 degrees:
@@ -176,10 +185,19 @@ def get_text(image, box_x, box_y, leeway=0, binarize=False):
         # Rotate 270 degrees:
         rotated_image_270 = rotate_image(image_cropped, 270)
         ocr_results_270 = tesseract_ocr(rotated_image_270)
-        if len(ocr_results_270) > len(ocr_results):
-            ocr_results = deepcopy(ocr_results_270)
-            rotated_image = deepcopy(rotated_image_270)
+        if compare_numbers_count is False:
+            if len(ocr_results_270) > len(ocr_results):
+                ocr_results = deepcopy(ocr_results_270)
+                rotated_image = deepcopy(rotated_image_270)
+        else:
+            c1 = re.findall("\d", ocr_results)
+            c2 = re.findall("\d", ocr_results_270)
+            if len(c2) > len(c1):
+                ocr_results = deepcopy(ocr_results_270)
+                rotated_image = deepcopy(rotated_image_270)
+
         image_cropped = deepcopy(rotated_image)
+
     return ocr_results, image_cropped
 
 
@@ -197,10 +215,10 @@ def tesseract_ocr(image):
     # Input: image to perform OCR on.
     # Output: extracted text.
     try:
-        ocr = pytesseract.image_to_string(image, config="--psm 11 script=Latin")
+        ocr = pytesseract.image_to_string(image, config="--psm 13 script=Latin")
     except:
         ocr = pytesseract.image_to_string(
-            np.uint8(image), config="--psm 11 script=Latin"
+            np.uint8(image), config="--psm 13 script=Latin"
         )
     return ocr
 

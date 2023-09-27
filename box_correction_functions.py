@@ -1,6 +1,6 @@
-###########
+##########
 # Imports
-###########
+##########
 
 
 import numpy as np
@@ -14,6 +14,7 @@ from source_functions import (
     get_box_details,
     detect_orientation,
     get_box_index_for_textboxes,
+    get_textbox_details,
 )
 from itertools import combinations
 import itertools
@@ -26,7 +27,7 @@ from post_processing_functions import tuplewize
 #####################################
 
 
-def approximate_box(box):
+def approximate_box(box, epsilon=0.02):
     # Input: original box contours.
     # Output: polygon approximation of contour.
 
@@ -35,15 +36,15 @@ def approximate_box(box):
     tst[:, 0, 1] = np.int_(box[0])
 
     peri = cv2.arcLength(tst, True)
-    approx = cv2.approxPolyDP(tst, 0.02 * peri, True)
+    approx = cv2.approxPolyDP(tst, epsilon * peri, True)
 
     return approx
 
 
-def filter_for_possible_box_corners(eggcardboxes):
+def filter_for_possible_box_corners(eggcardboxes, epsilon=0.02):
     # Input: egg card box contour (supposedly consisting of more than one box)
     # Output: vertices of possible boxes contained within one box contour.
-    approx_corners = approximate_box(eggcardboxes)
+    approx_corners = approximate_box(eggcardboxes, epsilon=epsilon)
     new_approx_corners = approx_corners.reshape(len(approx_corners), 2)
     X_tupled, Y_tupled, X_values, Y_values = get_new_corners(new_approx_corners)
     return [X_tupled, Y_tupled], [X_values, Y_values], new_approx_corners
@@ -173,7 +174,7 @@ def is_box_valid(corner_tuples):
 ####################################
 
 
-def split_eggcard_boxes(eggcard_boxes):
+def split_eggcard_boxes(eggcard_boxes, epsilon=0.02):
     # Input: all egg card box contours.
     # Output: box contours, split into multiple box contours if neccesary.
     refined_boxes = []
@@ -182,16 +183,18 @@ def split_eggcard_boxes(eggcard_boxes):
         if len(a) == 4:
             refined_boxes.append(box)
         else:
-            split_boxes = get_new_boxes(box)
+            split_boxes = get_new_boxes(box, epsilon=epsilon)
             if len(split_boxes) > 0:
                 refined_boxes.extend(split_boxes)
     return refined_boxes
 
 
-def get_new_boxes(eggcardboxes):
+def get_new_boxes(eggcardboxes, epsilon=0.02):
     # Input: egg card box contour (supposedly consisting of more than one box)
     # Output: split egg card box contours.
-    XY_tuples, XY, approx_corners = filter_for_possible_box_corners(eggcardboxes)
+    XY_tuples, XY, approx_corners = filter_for_possible_box_corners(
+        eggcardboxes, epsilon=epsilon
+    )
     wrong_corners = check_boxes_to_ignore(XY[0], XY[1], approx_corners)
     refined_boxes = []
 
@@ -243,8 +246,12 @@ The labels are: 'reg','species','locality','collector','date','setMark','noOfEgg
 ##########################
 
 
-def find_area(box):
-    box_minx, box_maxx, box_miny, box_maxy = get_box_details(box)
+def find_area(box, textbox=False):
+    if textbox is False:
+        box_minx, box_maxx, box_miny, box_maxy = get_box_details(box)
+    else:
+        box_minx, box_maxx, box_miny, box_maxy = get_textbox_details(box)
+
     area = (box_maxx - box_minx) * (box_maxy - box_miny)
     return area
 
@@ -286,13 +293,16 @@ def group_boxes(egg_boxes, reg_box_ind, bound=50, area_lower_bound=900):
     return group_index_
 
 
-def get_boundary_for_group_of_boxes(egg_boxes, inds):
+def get_boundary_for_group_of_boxes(egg_boxes, inds, textbox=False):
     min_y = []
     max_y = []
     min_x = []
     max_x = []
     for i in inds:
-        box_minx, box_maxx, box_miny, box_maxy = get_box_details(egg_boxes[i])
+        if textbox is True:
+            box_minx, box_maxx, box_miny, box_maxy = get_textbox_details(egg_boxes[i])
+        else:
+            box_minx, box_maxx, box_miny, box_maxy = get_box_details(egg_boxes[i])
         min_y.append(box_miny)
         max_y.append(box_maxy)
         min_x.append(box_minx)
@@ -335,6 +345,41 @@ def sort_boxes_in_y_order(egg_boxes):
     for ind in np.argsort(ymin):
         egg_boxes_sorted.append(egg_boxes[ind])
     return egg_boxes_sorted
+
+
+def does_box_contain_other_box(box, other_box, leeway=0):
+    box_minx, box_maxx, box_miny, box_maxy = get_box_details(box)
+    minx, maxx, miny, maxy = get_box_details(other_box)
+
+    if all(
+        (
+            (miny >= box_miny - leeway),
+            (maxy <= box_maxy + leeway),
+            (minx >= box_minx - leeway),
+            (maxx <= box_maxx + leeway),
+        )
+    ):
+        return True
+    else:
+        return False
+
+
+def remove_boxes_containing_other_boxes(egg_boxes, area_limit=5000):
+    egg_boxes_new = []
+
+    for i, box in enumerate(egg_boxes):
+        contains_box = False
+        for j, other_box in enumerate(egg_boxes):
+            if j != i:
+                c = does_box_contain_other_box(box, other_box, leeway=0)
+                if c is True:
+                    a = find_area(other_box)
+                    if a > area_limit:
+                        contains_box = True
+                        break
+        if contains_box is False:
+            egg_boxes_new.append(box)
+    return egg_boxes_new
 
 
 ######################
@@ -602,7 +647,7 @@ def verify_and_filter_boxes(egg_boxes, index):
     return all_boxes
 
 
-def get_boxes_and_labels(image_path):
+def get_boxes_and_labels(image_path, lowerbound=6, filter_boxes=True):
     img_sk = io.imread(image_path)
     contours = find_all_contours(cv2.cvtColor(img_sk, cv2.COLOR_BGR2GRAY))
     # Get boundary thresholds for box definition:
@@ -612,8 +657,19 @@ def get_boxes_and_labels(image_path):
         contours, xbound, ybound, additional_filters=False
     )
     egg_boxes = split_eggcard_boxes(eggcard_boxes_sk)
+    if len(egg_boxes) <= lowerbound:
+        egg_boxes_ = split_eggcard_boxes(eggcard_boxes_sk, epsilon=0.01)
+        if len(egg_boxes_) > len(egg_boxes):
+            egg_boxes = deepcopy(egg_boxes_)
+    if filter_boxes:
+        egg_boxes = remove_boxes_containing_other_boxes(egg_boxes)
     egg_boxes_sorted = sort_boxes_in_y_order(egg_boxes)
     _, reg_box_ind = find_reg_box(egg_boxes_sorted)
+    if reg_box_ind == "N/A":
+        new_reg_box, new_reg_box_ind = find_reg_box(eggcard_boxes_sk)
+        if new_reg_box_ind != "N/A":
+            egg_boxes_sorted.insert(0, new_reg_box)
+            reg_box_ind = 0
     egg_boxes_refined, reg_box_ind = remove_spare_vertical_boxes_from_eggboxes(
         egg_boxes_sorted, reg_box_ind
     )
