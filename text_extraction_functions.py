@@ -76,7 +76,7 @@ def text_from_multiple_textboxes(
 
 def remove_category_from_text(keyword, text):
     n = len(re.findall("\w+", keyword))
-    text = text.replace("no.", "no").replace("No.", "No")
+    text = text.replace("no.", "no ").replace("No.", "No ")
 
     if n > 1:
         txt_ = re.findall("\w+", text)[:n]
@@ -295,6 +295,7 @@ def get_all_category_text(boxes_ref, textboxes, inds_dict, image):
     reg = remove_category_from_text("reg no", reg)
     all_info["registrationNumber"] = reg
     # Species
+    cardSpecies = remove_category_from_text("reg no", cardSpecies)
     species_name, species_results = find_species_from_text([cardSpecies], [])
     taxon = get_taxon_info(species_name, species_results)
     all_info["cardSpecies"] = cardSpecies
@@ -349,6 +350,7 @@ def get_all_category_text(boxes_ref, textboxes, inds_dict, image):
     except:
         noOfEggs = "N/A"
     noOfEggs = remove_category_from_text("no of eggs", noOfEggs)
+ 
     all_info["noOfEggs"] = noOfEggs
 
     # 7) Other:
