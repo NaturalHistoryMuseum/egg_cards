@@ -229,10 +229,13 @@ def get_text_from_category_box(
 ################
 
 
-def get_text_from_other_box(textboxes, inds_dict, image):
+def get_text_from_other_box(textboxes, inds_dict, image,combine=True):
 
     inds = [j for j in list(inds_dict.keys()) if inds_dict[j] == 7]
-    boxes = refine_boxes(textboxes[inds], pixel_proximity_bound=100)
+    if combine:
+        boxes = refine_boxes(textboxes[inds], pixel_proximity_bound=100)
+    else:
+        boxes = textboxes[inds]
 
     text = text_from_multiple_textboxes(boxes, image, list(range(len(boxes))))
 
@@ -271,7 +274,7 @@ def get_boxes_and_textboxes_and_index(image_path, output_dir):
     return boxes_ref, textboxes, inds_dict, img_sk
 
 
-def get_all_category_text(boxes_ref, textboxes, inds_dict, image):
+def get_all_category_text(boxes_ref, textboxes, inds_dict, image,combine_other=True):
     all_info = {}
     # 1) Registration number and Species:
     # we combine because sometimes these are in the same box.
@@ -355,7 +358,7 @@ def get_all_category_text(boxes_ref, textboxes, inds_dict, image):
 
     # 7) Other:
     try:
-        other = get_text_from_other_box(textboxes, inds_dict, image)
+        other = get_text_from_other_box(textboxes, inds_dict, image,combine=combine_other)
     except:
         other = "N/A"
     all_info["remainingText"] = other
