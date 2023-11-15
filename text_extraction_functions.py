@@ -260,7 +260,7 @@ labels = [
 ]
 
 
-def get_boxes_and_textboxes_and_index(image_path, output_dir):
+def get_boxes_and_textboxes_and_index(image_path, output_dir,leeway=30):
     try:
         boxes_ref, img_sk = get_boxes_and_labels(image_path)
     except:
@@ -269,7 +269,7 @@ def get_boxes_and_textboxes_and_index(image_path, output_dir):
         )
     textboxes = get_craft_textboxes(image_path, output_dir)
     inds_dict = get_box_index_for_textboxes(
-        textboxes, list(boxes_ref.values()), textbox_leeway=20
+        textboxes, list(boxes_ref.values()), textbox_leeway=leeway
     )
     return boxes_ref, textboxes, inds_dict, img_sk
 
