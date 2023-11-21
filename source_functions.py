@@ -61,7 +61,7 @@ def load_image(image_path):
     return image, image_grey
 
 
-def find_all_contours(image_grey, binarize=False):
+def find_all_contours(image_grey, binarize=False,thresh=0.8):
     # Input: grey-scaled image.
     # Output: contours in image, found with Marching Squares method.
     if binarize is False:
@@ -69,11 +69,12 @@ def find_all_contours(image_grey, binarize=False):
     else:
         thresh = threshold_otsu(image_grey)
         image = image_grey > thresh
-    contours = measure.find_contours(image, 0.8)
+        image = 255*image.astype('uint8')
+    contours = measure.find_contours(image, thresh)
     return contours
 
 
-def get_max_bounds(contours, xbound=10, ybound=12):
+def get_max_bounds(contours, xbound=10, ybound=12,return_minmax=False):
     # Input: contours
     # Output: x,y bounds to filter for box contours.
     all_x_coords = []
@@ -90,7 +91,10 @@ def get_max_bounds(contours, xbound=10, ybound=12):
     xb = (max_x - min_x) / xbound
     yb = (max_y - min_y) / ybound
 
-    return xb, yb
+    if return_minmax:
+        return [min_x,max_x],[min_y,max_y]
+    else:
+        return xb, yb
 
 
 def filter_contours(
