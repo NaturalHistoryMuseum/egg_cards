@@ -147,12 +147,12 @@ def check_all_corners(xs, ys, new_approx):
     return all_corners_in_contours
 
 
-def is_corner_in_contours(x, y, approx_boxes):
+def is_corner_in_contours(x, y, approx_boxes, leeway=30):
     # Input: x and y coordiantes of vertex, box vertices.
     # Output: (binary) check if vertex is within box.
     found_corner = False
     for c in np.round_(approx_boxes, -1):
-        if (abs(c[0] - y) <= 20) and (abs(c[1] - x) <= 20):
+        if (abs(c[0] - y) <= leeway) and (abs(c[1] - x) <= leeway):
             found_corner = True
             break
     return found_corner
@@ -471,7 +471,6 @@ Here, we assume that the second highest horizontal boxes are the locality and co
 
 
 def refine_group1_box(egg_boxes, index, verification_bound=100, split=0.6):
-
     inds = index[1]
     min_x, max_x, min_y, max_y = get_boundary_for_group_of_boxes(egg_boxes, inds)
 
@@ -523,7 +522,6 @@ Here, we assume that the third row of horizontal boxes are the date, set mark, a
 def refine_group2_box(
     egg_boxes, index, verification_bound=100, split1=0.42, split2=0.74
 ):
-
     inds = index[2]
     min_x, max_x, min_y, max_y = get_boundary_for_group_of_boxes(egg_boxes, inds)
 
@@ -571,7 +569,6 @@ def refine_group2_box(
 
 
 def verify_and_filter_boxes(egg_boxes, index):
-
     # 1) Regitration number box (vertical):
     reg_box_ind = index[list(index.keys())[-1]][0]
     reg_box = egg_boxes[reg_box_ind]
@@ -647,7 +644,9 @@ def verify_and_filter_boxes(egg_boxes, index):
     return all_boxes
 
 
-def get_boxes_and_labels(image_path, lowerbound=6, filter_boxes=True):
+def get_boxes_and_labels(
+    image_path, lowerbound=6, minimum_lower_bound=3, filter_boxes=True
+):
     img_sk = io.imread(image_path)
     contours = find_all_contours(cv2.cvtColor(img_sk, cv2.COLOR_BGR2GRAY))
     # Get boundary thresholds for box definition:
@@ -657,6 +656,11 @@ def get_boxes_and_labels(image_path, lowerbound=6, filter_boxes=True):
         contours, xbound, ybound, additional_filters=False
     )
     egg_boxes = split_eggcard_boxes(eggcard_boxes_sk)
+    if len(egg_boxes) <= minimum_lower_bound:
+        # If the amount of boxes found is too low, we estimate all 8 boxes with backup function.
+        egg_boxes = redo_boxes(image_path, indexing=False)
+        eggcard_boxes_sk = deepcopy(egg_boxes)
+
     if len(egg_boxes) <= lowerbound:
         egg_boxes_ = split_eggcard_boxes(eggcard_boxes_sk, epsilon=0.01)
         if len(egg_boxes_) > len(egg_boxes):
@@ -678,3 +682,124 @@ def get_boxes_and_labels(image_path, lowerbound=6, filter_boxes=True):
     boxes_ref = verify_and_filter_boxes(egg_boxes_refined, index)
 
     return boxes_ref, img_sk
+
+
+##########################
+# Backup Outline Functions
+##########################
+
+
+def estimate_boxes(
+    xbounds, ybounds, average_ratios=[0.115, 0.14, 0.30, 0.40, 0.61, 0.47, 0.75]
+):
+    # Approximates the outline contours of boxes within an egg card based on average measurements.
+
+    avg_a, avg_b, avg_c, avg_d, avg_e, avg_f, avg_g = average_ratios
+
+    # 1) Reg no. box:
+    reg_r = xbounds[0] + (abs(xbounds[1] - xbounds[0]) * avg_a)
+    reg_box = [
+        [xbounds[0], xbounds[0], reg_r, reg_r, xbounds[0]],
+        [ybounds[0], ybounds[1], ybounds[1], ybounds[0], ybounds[0]],
+    ]
+
+    # 2) Species box:
+    species_r = ybounds[0] + (abs(ybounds[1] - ybounds[0]) * avg_b)
+
+    species_box = [
+        [reg_r, reg_r, xbounds[1], xbounds[1], reg_r],
+        [ybounds[0], species_r, species_r, ybounds[0], ybounds[0]],
+    ]
+
+    # 3) Locality box:
+    locality_rx = xbounds[0] + (abs(xbounds[1] - xbounds[0]) * avg_e)
+    locality_ry = ybounds[0] + (abs(ybounds[1] - ybounds[0]) * avg_c)
+
+    locality_box = [
+        [reg_r, reg_r, locality_rx, locality_rx, reg_r],
+        [species_r, locality_ry, locality_ry, species_r, species_r],
+    ]
+
+    # 4) Collector box:
+    collector_box = [
+        [locality_rx, locality_rx, xbounds[1], xbounds[1], locality_rx],
+        [species_r, locality_ry, locality_ry, species_r, species_r],
+    ]
+
+    # 5) Date box:
+    date_ry = ybounds[0] + (abs(ybounds[1] - ybounds[0]) * avg_d)
+    date_rx = xbounds[0] + (abs(xbounds[1] - xbounds[0]) * avg_f)
+    date_box = [
+        [reg_r, reg_r, date_rx, date_rx, reg_r],
+        [locality_ry, date_ry, date_ry, locality_ry, locality_ry],
+    ]
+
+    # 6) Set mark box:
+    set_rx = xbounds[0] + (abs(xbounds[1] - xbounds[0]) * avg_g)
+    set_box = [
+        [date_rx, date_rx, set_rx, set_rx, date_rx],
+        [locality_ry, date_ry, date_ry, locality_ry, locality_ry],
+    ]
+
+    # 7) Number of eggs box:
+    egg_box = [
+        [set_rx, set_rx, xbounds[1], xbounds[1], set_rx],
+        [locality_ry, date_ry, date_ry, locality_ry, locality_ry],
+    ]
+
+    # 8) Other text box:
+    other_box = [
+        [reg_r, reg_r, xbounds[1], xbounds[1], reg_r],
+        [date_ry, ybounds[1], ybounds[1], date_ry, date_ry],
+    ]
+
+    # Sort to box:
+    egg_boxes_new = []
+
+    egg_boxes_new.append([np.array(reg_box[0]), np.array(reg_box[1])])
+    egg_boxes_new.append([np.array(species_box[0]), np.array(species_box[1])])
+    egg_boxes_new.append([np.array(locality_box[0]), np.array(locality_box[1])])
+    egg_boxes_new.append([np.array(collector_box[0]), np.array(collector_box[1])])
+    egg_boxes_new.append([np.array(date_box[0]), np.array(date_box[1])])
+    egg_boxes_new.append([np.array(set_box[0]), np.array(set_box[1])])
+    egg_boxes_new.append([np.array(egg_box[0]), np.array(egg_box[1])])
+    egg_boxes_new.append([np.array(other_box[0]), np.array(other_box[1])])
+
+    return egg_boxes_new
+
+
+def redo_boxes(
+    image_path,
+    average_ratios=[0.115, 0.14, 0.30, 0.40, 0.61, 0.47, 0.75],
+    indexing=True,
+):
+    # Input: image path
+    # Output: image, 8 box outlines.
+    # This function is a backup version of get_boxes_and_labels.
+
+    # 1) Load image
+    img = io.imread(image_path)
+
+    # 2) Estimate main box corners:
+    contours = find_all_contours(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), binarize=True)
+    xbounds, ybounds = get_max_bounds(contours, return_minmax=True)
+
+    if (ybounds[0] < 15) and (ybounds[1] > np.shape(img)[0] - 15):
+        ybounds = [50, np.shape(img)[0] - 50]
+
+    # 3) Estimate box contours:
+    egg_boxes_new = estimate_boxes(xbounds, ybounds, average_ratios=average_ratios)
+
+    if indexing:
+        # 4) Sort boxes:
+        egg_boxes_sorted = sort_boxes_in_y_order(egg_boxes_new)
+
+        # 5) Index boxes:
+        _, reg_box_ind = find_reg_box(egg_boxes_sorted)
+        index = group_boxes(egg_boxes_sorted, reg_box_ind, bound=50)
+        index = species_check_index_correction(egg_boxes_sorted, index)
+        boxes_ref = verify_and_filter_boxes(egg_boxes_sorted, index)
+
+        return boxes_ref, img
+    else:
+        return egg_boxes_new

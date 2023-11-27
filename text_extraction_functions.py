@@ -27,6 +27,9 @@ from post_processing_functions import find_species_from_text, get_taxon_info
 #######
 
 
+output_dir = "outputs/"
+
+
 def get_craft_textboxes(image_path, output_dir):
     # Textboxes with Craft
     ######################
@@ -46,7 +49,11 @@ def get_craft_textboxes(image_path, output_dir):
 
 
 def get_boxes_and_textboxes(image_path, output_dir):
-    boxes_ref, img = get_boxes_and_labels(image_path)
+    try:
+        boxes_ref, img = get_boxes_and_labels(image_path)
+    except:
+        boxes_ref, img = redo_boxes(image_path)
+
     textboxes = get_craft_textboxes(image_path, output_dir)
     inds_dict = get_box_index_for_textboxes(
         textboxes, list(boxes_ref.values()), textbox_leeway=20
@@ -84,6 +91,7 @@ def remove_category_from_text(keyword, text):
     else:
         txt_ = re.findall("\w+", text)[:1]
         txt = txt_[0]
+
     r = fuzz.ratio(keyword, txt.lower())
     if r < 70:
         return text
@@ -106,13 +114,28 @@ def remove_category_from_text(keyword, text):
         return final_text
 
 
+def remove_all_categories_from_text(
+    text,
+    keywords=["reg no", "locality", "collector", "date", "set mark", "no of eggs"],
+    main_word="",
+):
+    final_text = deepcopy(text)
+    for keyword in keywords:
+        if keyword == main_word:
+            final_text = remove_category_from_text(keyword, final_text)
+        else:
+            final_text = final_text.replace(keyword, "")
+            final_text = final_text.replace(keyword.title(), "")
+
+    return final_text
+
+
 #####################
 # Registration Number
 #####################
 
 
 def get_reg_number(textboxes, inds_dict, image):
-
     all_text = []
 
     for j in list(inds_dict.keys()):
@@ -229,8 +252,7 @@ def get_text_from_category_box(
 ################
 
 
-def get_text_from_other_box(textboxes, inds_dict, image,combine=True):
-
+def get_text_from_other_box(textboxes, inds_dict, image, combine=True):
     inds = [j for j in list(inds_dict.keys()) if inds_dict[j] == 7]
     if combine:
         boxes = refine_boxes(textboxes[inds], pixel_proximity_bound=100)
@@ -260,13 +282,11 @@ labels = [
 ]
 
 
-def get_boxes_and_textboxes_and_index(image_path, output_dir,leeway=30):
+def get_boxes_and_textboxes_and_index(image_path, output_dir, leeway=30):
     try:
         boxes_ref, img_sk = get_boxes_and_labels(image_path)
     except:
-        boxes_ref, img_sk = get_boxes_and_labels(
-            image_path, output_dir, filter_boxes=False
-        )
+        boxes_ref, img_sk = get_boxes_and_labels(image_path, filter_boxes=False)
     textboxes = get_craft_textboxes(image_path, output_dir)
     inds_dict = get_box_index_for_textboxes(
         textboxes, list(boxes_ref.values()), textbox_leeway=leeway
@@ -274,7 +294,7 @@ def get_boxes_and_textboxes_and_index(image_path, output_dir,leeway=30):
     return boxes_ref, textboxes, inds_dict, img_sk
 
 
-def get_all_category_text(boxes_ref, textboxes, inds_dict, image,combine_other=True):
+def get_all_category_text(boxes_ref, textboxes, inds_dict, image, combine_other=True):
     all_info = {}
     # 1) Registration number and Species:
     # we combine because sometimes these are in the same box.
@@ -295,10 +315,13 @@ def get_all_category_text(boxes_ref, textboxes, inds_dict, image,combine_other=T
         c2 = re.findall("\d", reg_backup)
         if len(c2) > len(c1):
             reg = deepcopy(reg_backup)
-    reg = remove_category_from_text("reg no", reg)
+    reg = remove_all_categories_from_text(reg, main_word="reg no")
     all_info["registrationNumber"] = reg
     # Species
-    cardSpecies = remove_category_from_text("reg no", cardSpecies)
+    cardSpecies = remove_all_categories_from_text(
+        cardSpecies,
+        keywords=["reg no", "locality", "collector", "set mark", "no of eggs"],
+    )
     species_name, species_results = find_species_from_text([cardSpecies], [])
     taxon = get_taxon_info(species_name, species_results)
     all_info["cardSpecies"] = cardSpecies
@@ -312,7 +335,7 @@ def get_all_category_text(boxes_ref, textboxes, inds_dict, image,combine_other=T
         )
     except:
         locality = "N/A"
-    locality = remove_category_from_text("locality", locality)
+    locality = remove_all_categories_from_text(locality, main_word="locality")
     all_info["locality"] = locality
 
     # 3) Collector:
@@ -322,7 +345,11 @@ def get_all_category_text(boxes_ref, textboxes, inds_dict, image,combine_other=T
         )
     except:
         collector = "N/A"
-    collector = remove_category_from_text("collector", collector)
+    collector = remove_all_categories_from_text(
+        collector,
+        keywords=["reg no", "locality", "collector", "set mark", "no of eggs"],
+        main_word="collector",
+    )
     all_info["collector"] = collector
 
     # 4) Date:
@@ -332,7 +359,7 @@ def get_all_category_text(boxes_ref, textboxes, inds_dict, image,combine_other=T
         )
     except:
         date = "N/A"
-    date = remove_category_from_text("date", date)
+    date = remove_all_categories_from_text(date, main_word="date")
     all_info["date"] = date
 
     # 5) Set Mark:
@@ -342,7 +369,7 @@ def get_all_category_text(boxes_ref, textboxes, inds_dict, image,combine_other=T
         )
     except:
         setMark = "N/A"
-    setMark = remove_category_from_text("set mark", setMark)
+    setMark = remove_all_categories_from_text(setMark, main_word="set mark")
     all_info["setMark"] = setMark
 
     # 6) No. Eggs:
@@ -352,13 +379,15 @@ def get_all_category_text(boxes_ref, textboxes, inds_dict, image,combine_other=T
         )
     except:
         noOfEggs = "N/A"
-    noOfEggs = remove_category_from_text("no of eggs", noOfEggs)
- 
+    noOfEggs = remove_all_categories_from_text(noOfEggs, main_word="no of eggs")
+
     all_info["noOfEggs"] = noOfEggs
 
     # 7) Other:
     try:
-        other = get_text_from_other_box(textboxes, inds_dict, image,combine=combine_other)
+        other = get_text_from_other_box(
+            textboxes, inds_dict, image, combine=combine_other
+        )
     except:
         other = "N/A"
     all_info["remainingText"] = other
