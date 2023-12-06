@@ -15,6 +15,7 @@ from source_functions import (
     detect_orientation,
     get_box_index_for_textboxes,
     get_textbox_details,
+    load_image,
 )
 from itertools import combinations
 import itertools
@@ -645,15 +646,21 @@ def verify_and_filter_boxes(egg_boxes, index):
 
 
 def get_boxes_and_labels(
-    image_path, lowerbound=6, minimum_lower_bound=3, filter_boxes=True
+    image_path,
+    lowerbound=6,
+    minimum_lower_bound=3,
+    filter_boxes=True,
+    library="sk",
+    additional_filters=False,
+    additional_threshing=True,
 ):
-    img_sk = io.imread(image_path)
-    contours = find_all_contours(cv2.cvtColor(img_sk, cv2.COLOR_BGR2GRAY))
+    img_sk, I = load_image(image_path, library=library)
+    contours = find_all_contours(I, additional_threshing=additional_threshing)
     # Get boundary thresholds for box definition:
     xbound, ybound = get_max_bounds(contours)
     # Filter for box contours:
     eggcard_boxes_sk = filter_contours(
-        contours, xbound, ybound, additional_filters=False
+        contours, xbound, ybound, additional_filters=additional_filters
     )
     egg_boxes = split_eggcard_boxes(eggcard_boxes_sk)
     if len(egg_boxes) <= minimum_lower_bound:

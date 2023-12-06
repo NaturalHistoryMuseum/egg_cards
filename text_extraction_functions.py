@@ -282,11 +282,20 @@ labels = [
 ]
 
 
-def get_boxes_and_textboxes_and_index(image_path, output_dir, leeway=30):
+def get_boxes_and_textboxes_and_index(
+    image_path, output_dir, leeway=30, library="sk", additional_threshing=True
+):
     try:
-        boxes_ref, img_sk = get_boxes_and_labels(image_path)
+        boxes_ref, img_sk = get_boxes_and_labels(
+            image_path, library=library, additional_threshing=additional_threshing
+        )
     except:
-        boxes_ref, img_sk = get_boxes_and_labels(image_path, filter_boxes=False)
+        boxes_ref, img_sk = get_boxes_and_labels(
+            image_path,
+            filter_boxes=False,
+            library=library,
+            additional_threshing=additional_threshing,
+        )
     textboxes = get_craft_textboxes(image_path, output_dir)
     inds_dict = get_box_index_for_textboxes(
         textboxes, list(boxes_ref.values()), textbox_leeway=leeway

@@ -1,0 +1,530 @@
+from text_extraction_functions import *
+from copy import deepcopy
+from skimage import measure
+import json
+
+##################
+# Basic Functions
+##################
+
+
+def get_block_vertices(vertices):
+    X = [v["x"] for v in vertices]
+    Y = [v["y"] for v in vertices]
+    return [X, Y]
+
+
+def load_vision_json(path):
+    f = open(path)
+    data = json.load(f)
+    vision_response = data["responses"][0]
+    return vision_response
+
+
+#########################
+# Google Vision Textboxes
+#########################
+
+
+def get_boxes_of_main_categories(
+    vision_response,
+    key_terms=["Date", "Locality", "Set", "Collector", "No", "No.", "Eggs"],
+):
+    vertices_all = {}
+    k = 0
+
+    text_annotations = vision_response.get("textAnnotations", [])
+    for annotation in text_annotations:
+        description = annotation.get("description", "")
+        bounding_poly = annotation.get("boundingPoly", {}).get("vertices", [])
+
+        if bounding_poly:
+            if description in key_terms:
+                # Process bounding box coordinates
+                # Draw bounding box using these coordinates
+                x, y = get_block_vertices(bounding_poly)
+                vertices_all.update({k: {"x": x, "y": y, "text": description}})
+                k = k + 1
+
+    return vertices_all
+
+
+def get_centre_categories(vertices_all, pixel_bound=50):
+    vertices_main = {}
+
+    # Find coordinate for "Eggs" in "No. of Eggs" box:
+    for p in vertices_all.keys():
+        if vertices_all[p]["text"] == "Eggs":
+            y_egg_avg = np.average(vertices_all[p]["y"])
+
+    k = len(vertices_all)
+
+    for j in range(k):
+        text = vertices_all[j]["text"]
+        x = vertices_all[j]["x"]
+        y = vertices_all[j]["y"]
+        if text not in ["No", "No.", "Eggs"]:
+            vertices_main.update({text: {"x": x, "y": y}})
+        elif text in ["No.", "No"]:
+            y_avg = np.average(y)
+            if abs(y_avg - y_egg_avg) < pixel_bound:
+                vertices_main.update({text: {"x": x, "y": y}})
+
+    vertices_main_ = deepcopy(vertices_main)
+    try:
+        vertices_main_["Egg"] = vertices_main["No."]
+    except:
+        vertices_main_["Egg"] = vertices_main["No"]
+
+    return vertices_main_
+
+
+########################
+# Box Contour Functions
+########################
+
+# For mid-line #
+
+
+def reformat_image(
+    image, vertices_main, text_annotations, boxx, boxy, bound=75, percentile_bound=40
+):
+    img_grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    I = deepcopy(img_grey)
+    img_grey[np.where(I > np.percentile(I.flatten(), percentile_bound))] = 255
+
+    img_grey[: int(min(vertices_main["Date"]["y"]) - 1), :] = 255
+    img_grey[:, : int(min(vertices_main["Date"]["x"]) - 1)] = 255
+    img_grey[int(max(boxy) - bound) :, :] = 255
+    img_grey[:, int(max(boxx) - bound) :] = 255
+
+    img_grey_new = deepcopy(img_grey)
+    for i, annotation in enumerate(text_annotations):
+        if i > 0:
+            bounding_poly = annotation.get("boundingPoly", {}).get("vertices", [])
+            x, y = get_block_vertices(bounding_poly)
+            img_grey_new[int(min(y)) : int(max(y)), int(min(x)) : int(max(x))] = 255
+
+    return img_grey_new
+
+
+def find_midline(grey_image, thresh=0.8, format=True):
+    if format:
+        grey_image = grey_image / 255
+
+    contours = measure.find_contours(grey_image, thresh)
+
+    c_ = [max(c[:, 1]) - min(c[:, 1]) for c in contours]
+    c = contours[np.argmax(c_)]
+
+    x = c[:, 1]
+    y = c[:, 0]
+
+    x_ = np.sort(x)
+    y_ = np.array(y)[np.argsort(x)]
+
+    return [x_[0], x_[-1]], [y_[0], y_[-1]]
+
+
+# For main box #
+
+
+def get_main_box_contour(vision_response, boundx=25, boundy=25):
+    X, Y = get_block_vertices(
+        vision_response["textAnnotations"][0]["boundingPoly"]["vertices"]
+    )
+    width = vision_response["fullTextAnnotation"]["pages"][0]["width"]
+    height = vision_response["fullTextAnnotation"]["pages"][0]["height"]
+
+    minx = max([min(X) - boundx, 0])
+    maxx = min([max(X) + boundx, width])
+    miny = max([min(Y) - boundy, 0])
+    maxy = min([max(Y) + boundy, height])
+
+    return [minx, minx, maxx, maxx, minx], [miny, maxy, maxy, miny, miny]
+
+
+# For reg box #
+
+
+def get_reg_box(vertices_main, boxx, boxy, bound=30):
+    x1 = min(vertices_main["Locality"]["x"]) - bound
+    x2 = min(vertices_main["Date"]["x"]) - bound
+    return [min(boxx), min(boxx), x2, x1, min(boxx)], [
+        min(boxy),
+        max(boxy),
+        max(boxy),
+        min(boxy),
+        min(boxy),
+    ]
+
+
+# For species box #
+
+
+def get_species_box(vertices_main, boxx, boxy, bound=25):
+    x = min(vertices_main["Locality"]["x"]) - bound
+    y1 = min(vertices_main["Locality"]["y"]) - bound
+    y2 = min(vertices_main["Collector"]["y"]) - bound
+    return [x, x, max(boxx), max(boxx), x], [min(boxy), y1, y2, min(boxy), min(boxy)]
+
+
+# For locality box #
+
+
+def get_locality_box(vertices_main, bound=25):
+    x1 = min(vertices_main["Locality"]["x"]) - bound
+    x2 = min(vertices_main["Date"]["x"]) - bound
+    x3 = min(vertices_main["Collector"]["x"]) - bound
+    y1 = min(vertices_main["Locality"]["y"]) - bound
+    y2 = min(vertices_main["Date"]["y"]) - bound
+    y3 = min(vertices_main["Set"]["y"]) - bound
+    y4 = min(vertices_main["Collector"]["y"]) - bound
+
+    return [x1, x2, x3, x3, x1], [y1, y2, y3, y4, y1]
+
+
+# For collector box #
+
+
+def get_collector_box(vertices_main, boxx, bound=25):
+    x = min(vertices_main["Collector"]["x"]) - bound
+    y1 = min(vertices_main["Collector"]["y"]) - bound
+    y2 = min(vertices_main["Set"]["y"]) - bound
+    y3 = min(vertices_main["Egg"]["y"]) - bound
+    return [x, x, max(boxx), max(boxx), x], [y1, y2, y3, y1, y1]
+
+
+# For date box #
+
+
+def get_date_box(
+    vertices_main, midline_x, midline_y, bound=25, boundy=75, midline_method=True
+):
+    x1 = min(vertices_main["Date"]["x"]) - bound
+    x2 = min(vertices_main["Set"]["x"]) - bound
+    y1 = min(vertices_main["Date"]["y"]) - bound
+    y4 = min(vertices_main["Set"]["y"]) - bound
+
+    if midline_method:
+        y2 = np.interp(x1, midline_x, midline_y)
+        y3 = np.interp(x2, midline_x, midline_y)
+    else:
+        y2 = max(vertices_main["Date"]["y"]) + boundy
+        y3 = max(vertices_main["Set"]["y"]) + boundy
+
+    return [x1, x1, x2, x2, x1], [y1, y2, y3, y4, y1]
+
+
+# For set mark box #
+
+
+def get_setmark_box(
+    vertices_main, midline_x, midline_y, bound=25, boundy=75, midline_method=True
+):
+    x1 = min(vertices_main["Set"]["x"]) - bound
+    x2 = min(vertices_main["Egg"]["x"]) - bound
+
+    y1 = min(vertices_main["Set"]["y"]) - bound
+    if midline_method:
+        y2 = np.interp(x1, midline_x, midline_y)
+        y3 = np.interp(x2, midline_x, midline_y)
+    else:
+        y2 = max(vertices_main["Set"]["y"]) + boundy
+        y3 = max(vertices_main["Egg"]["y"]) + boundy
+
+    y4 = min(vertices_main["Egg"]["y"]) - bound
+
+    return [x1, x1, x2, x2, x1], [y1, y2, y3, y4, y1]
+
+
+# For no. eggs box #
+
+
+def get_noeggs_box(
+    vertices_main, boxx, midline_x, midline_y, bound=25, boundy=75, midline_method=True
+):
+    x = min(vertices_main["Egg"]["x"]) - bound
+
+    y1 = min(vertices_main["Egg"]["y"]) - bound
+
+    if midline_method:
+        y2 = np.interp(x, midline_x, midline_y)
+        y3 = np.interp(max(boxx), midline_x, midline_y)
+    else:
+        y2 = max(vertices_main["Egg"]["y"]) + boundy
+        y3 = deepcopy(y2)
+
+    return [x, x, max(boxx), max(boxx), x], [y1, y2, y3, y1, y1]
+
+
+# For other box #
+
+
+def get_other_box(boxx, boxy, midline_y, vertices_main, bound=30):
+    x_ = min(vertices_main["Date"]["x"]) - bound
+    x = [x_, x_, max(boxx), max(boxx), x_]
+    y = [midline_y[0], max(boxy), max(boxy), midline_y[-1], midline_y[0]]
+    return x, y
+
+
+###########################
+# Text Extraction Functions
+###########################
+
+
+def v_get_reg_number(inds_dict, texts):
+    all_text = []
+
+    for j in list(inds_dict.keys()):
+        if inds_dict[j] == 0:
+            txt = texts[j]
+            if len(re.findall("\d+", txt)) > 0:
+                all_text.append(txt)
+
+    try:
+        final_reg = ".".join(map(str, re.findall("\w+", " ".join(map(str, all_text)))))
+    except:
+        final_reg = deepcopy(all_text)
+
+    return final_reg
+
+
+def v_check_for_possible_reg_number(texts):
+    reg_ = False
+    digits_ = False
+    for w in texts:
+        if "Reg" in w:
+            reg_ = True
+        if len(re.findall("\d+", w)) > 0:
+            digits_ = True
+    if digits_ and reg_:
+        reg_ = True
+    else:
+        reg_ = False
+
+    return reg_
+
+
+def v_get_species_text(inds_dict, all_words):
+    inds = [j for j in list(inds_dict.keys()) if inds_dict[j] == 1]
+
+    texts = np.array(all_words)[inds]
+
+    reg_ = v_check_for_possible_reg_number(texts)
+
+    if reg_ is False:
+        species = " ".join(map(str, re.findall("\w+", " ".join(map(str, texts)))))
+        reg = "N/A"
+    else:
+        species_text = []
+        reg_text = []
+        for w in texts:
+            if len(re.findall("\d+", w)) == 0:
+                if (fuzz.ratio("Reg.No", w) < 80) and (fuzz.ratio("Reg", w) < 80):
+                    species_text.append(w)
+            else:
+                reg_text.append(w)
+
+        species = " ".join(
+            map(str, re.findall("\w+", " ".join(map(str, species_text))))
+        )
+        reg = ".".join(map(str, re.findall("\w+", " ".join(map(str, reg_text)))))
+
+    return species, reg
+
+
+def v_get_text_from_category_box(inds_dict, all_words, label_index):
+    inds = [j for j in list(inds_dict.keys()) if inds_dict[j] == label_index]
+
+    texts = np.array(all_words)[inds]
+
+    final_text = " ".join(map(str, texts))
+
+    return final_text
+
+
+#################
+# Main Functions
+#################
+
+
+def v_get_boxes_ref(img_sk, vertices_main, text_annotations, vision_response):
+    boxes_ref_new = {}
+
+    # Main box
+    boxx, boxy = get_main_box_contour(vision_response)
+
+    Ig = reformat_image(img_sk, vertices_main, text_annotations, boxx, boxy)
+    # Line below main boxes
+    x_, y_ = find_midline(Ig)
+
+    # 1) Reg number box:
+    X, Y = get_reg_box(vertices_main, boxx, boxy)
+    boxes_ref_new["reg"] = [X, Y]
+
+    # 2) Species box:
+    X, Y = get_species_box(vertices_main, boxx, boxy)
+    boxes_ref_new["species"] = [X, Y]
+
+    # 3) Locality box
+    X, Y = get_locality_box(vertices_main)
+    boxes_ref_new["locality"] = [X, Y]
+
+    # 4) Collector box:
+    X, Y = get_collector_box(vertices_main, boxx)
+    boxes_ref_new["collector"] = [X, Y]
+
+    # 5) Date Box:
+    X, Y = get_date_box(vertices_main, x_, y_)
+    boxes_ref_new["date"] = [X, Y]
+
+    # 6) Set Mark box:
+    X, Y = get_setmark_box(vertices_main, x_, y_)
+    boxes_ref_new["setMark"] = [X, Y]
+
+    # 7) No. Eggs box:
+    X, Y = get_noeggs_box(vertices_main, boxx, x_, y_)
+    boxes_ref_new["noOfEggs"] = [X, Y]
+
+    # 8) Other box:
+    x, y = get_other_box(boxy, x_, y_, vertices_main)
+    boxes_ref_new["other"] = [x, y]
+
+    return boxes_ref_new
+
+
+def get_all_texts_and_box_index(vision_response, boxes_ref, textbox_leeway=30):
+    new_textboxes = []
+    all_words = []
+
+    for j, p in enumerate(vision_response["textAnnotations"]):
+        if j > 0:
+            X = []
+            Y = []
+            for i in p["boundingPoly"]["vertices"]:
+                x = i["x"]
+                y = i["y"]
+                X.append(x)
+                Y.append(y)
+            new_textboxes.append(np.array([X, Y], dtype=np.float32).T)
+            all_words.append(p["description"])
+
+    new_inds_dict = get_box_index_for_textboxes(
+        np.array(new_textboxes), list(boxes_ref.values()), textbox_leeway=textbox_leeway
+    )
+
+    return new_inds_dict, all_words
+
+
+def v_get_all_category_text(inds_dict, all_words):
+    all_info = {}
+    # 1) Registration number and Species:
+    # we combine because sometimes these are in the same box.
+    try:
+        reg = v_get_reg_number(inds_dict, all_words)
+    except:
+        reg = "N/A"
+    try:
+        cardSpecies, reg_backup = v_get_species_text(inds_dict, all_words)
+    except:
+        cardSpecies = "N/A"
+        reg_backup = "N/A"
+    # Registration Number
+    if reg_backup != "N/A":
+        c1 = re.findall("\d", reg)
+        c2 = re.findall("\d", reg_backup)
+        if len(c2) > len(c1):
+            reg = deepcopy(reg_backup)
+    reg = remove_all_categories_from_text(reg, main_word="reg no")
+    all_info["registrationNumber"] = reg
+    # Species
+    cardSpecies = remove_all_categories_from_text(
+        cardSpecies,
+        keywords=["reg no", "locality", "collector", "set mark", "no of eggs"],
+    )
+    species_name, species_results = find_species_from_text([cardSpecies], [])
+    taxon = get_taxon_info(species_name, species_results)
+    all_info["cardSpecies"] = cardSpecies
+    for b in taxon.keys():
+        all_info[b] = taxon[b]
+
+    # 2) Locality:
+    try:
+        locality = v_get_text_from_category_box(inds_dict, all_words, 2)
+    except:
+        locality = "N/A"
+    locality = remove_all_categories_from_text(locality, main_word="locality")
+    all_info["locality"] = locality
+
+    # 3) Collector:
+    try:
+        collector = v_get_text_from_category_box(inds_dict, all_words, 3)
+    except:
+        collector = "N/A"
+    collector = remove_all_categories_from_text(
+        collector,
+        keywords=["reg no", "locality", "collector", "set mark", "no of eggs"],
+        main_word="collector",
+    )
+    all_info["collector"] = collector
+
+    # 4) Date:
+    try:
+        date = v_get_text_from_category_box(inds_dict, all_words, 4)
+    except:
+        date = "N/A"
+    date = remove_all_categories_from_text(date, main_word="date")
+    all_info["date"] = date
+
+    # 5) Set Mark:
+    try:
+        setMark = v_get_text_from_category_box(inds_dict, all_words, 5)
+    except:
+        setMark = "N/A"
+    setMark = remove_all_categories_from_text(setMark, main_word="set mark")
+    all_info["setMark"] = setMark
+
+    # 6) No. Eggs:
+    try:
+        noOfEggs = v_get_text_from_category_box(inds_dict, all_words, 6)
+    except:
+        noOfEggs = "N/A"
+    noOfEggs = remove_all_categories_from_text(noOfEggs, main_word="no of eggs")
+
+    all_info["noOfEggs"] = noOfEggs
+
+    # 7) Other:
+    try:
+        other = v_get_text_from_category_box(inds_dict, all_words, 7)
+    except:
+        other = "N/A"
+    all_info["remainingText"] = other
+
+    return all_info
+
+
+##############
+# One Function
+##############
+
+
+def v_get_all_card_info(path_to_json, path_to_image, pixel_bound=50, textbox_leeway=30):
+    # 1) Load image:
+    image = io.imread(path_to_image)
+    # 2) Load Google Vision output json:
+    vision_response = load_vision_json(path_to_json)
+    text_annotations = vision_response.get("textAnnotations", [])
+    # 3) Get textboxes from Vision output:
+    vertices_all = get_boxes_of_main_categories(vision_response)
+    vertices_main = get_centre_categories(vertices_all, pixel_bound=pixel_bound)
+    # 4) Get contours around category boxes:
+    boxes_ref = v_get_boxes_ref(image, vertices_main, text_annotations, vision_response)
+    # 5) Group textboxes with category boxes:
+    inds_dict, all_words = get_all_texts_and_box_index(
+        vision_response, boxes_ref, textbox_leeway=textbox_leeway
+    )
+    # 6) Sort out texts by category:
+    all_info = v_get_all_category_text(inds_dict, all_words)
+
+    return image, all_info

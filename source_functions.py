@@ -53,28 +53,51 @@ craft = Craft(output_dir=output_dir, crop_type="poly", cuda=False)
 ############
 
 
-def load_image(image_path):
+def load_image(image_path, library="sk"):
     # Input: path to egg card image.
     # Output: original image; grey-scaled image.
-    image = io.imread(image_path)
+    if library == "sk":
+        image = io.imread(image_path)
+    else:
+        image = cv2.imread(image_path)
+    if np.shape(image)[-1] == 4:
+        if len(np.unique(image[:, :, -1].flatten())):
+            image = image[:, :, :-1]
     image_grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
     return image, image_grey
 
 
-def find_all_contours(image_grey, binarize=False,thresh=0.8):
+def find_all_contours(
+    image_grey_original,
+    binarize=False,
+    thresh=0.8,
+    additional_threshing=False,
+    percentile_bound=20,
+):
+    image_grey = deepcopy(image_grey_original)
     # Input: grey-scaled image.
     # Output: contours in image, found with Marching Squares method.
+    if additional_threshing:
+        I = deepcopy(image_grey)
+        image_grey[np.where(I < np.percentile(I.flatten(), percentile_bound))] = 0
+
     if binarize is False:
         image = image_grey / 255
     else:
         thresh = threshold_otsu(image_grey)
         image = image_grey > thresh
-        image = 255*image.astype('uint8')
-    contours = measure.find_contours(image, thresh)
+        image = 255 * image.astype("uint8")
+
+    try:
+        contours = measure.find_contours(image, thresh)
+    except:
+        image = 255 * image.astype("uint8")
+        contours = measure.find_contours(image, thresh)
     return contours
 
 
-def get_max_bounds(contours, xbound=10, ybound=12,return_minmax=False):
+def get_max_bounds(contours, xbound=10, ybound=12, return_minmax=False):
     # Input: contours
     # Output: x,y bounds to filter for box contours.
     all_x_coords = []
@@ -92,27 +115,35 @@ def get_max_bounds(contours, xbound=10, ybound=12,return_minmax=False):
     yb = (max_y - min_y) / ybound
 
     if return_minmax:
-        return [min_x,max_x],[min_y,max_y]
+        return [min_x, max_x], [min_y, max_y]
     else:
         return xb, yb
 
 
+def round_down(number):
+    n_floor = np.floor(number)
+    return int(str(n_floor)[0]) * (10 ** (len(str(int(n_floor))) - 1))
+
+
 def filter_contours(
-    contours, xbound, ybound, min_contour_length=50, additional_filters=True
+    contours,
+    xbound,
+    ybound,
+    min_contour_length=50,
+    additional_filters=True,
+    additional_factor_bound=1,
 ):
     # Input: contours, xbound, ybound
     # Output: contours around boxes within egg card.
-    area_lower_bound = (xbound * ybound) / 5
+    area_lower_bound = round_down((xbound * ybound) / additional_factor_bound)
     final_contours = []
     for contour in contours:
-        if len(contour[:, 0]) > min_contour_length:
+        a = cv2.contourArea(contour.astype(int))
+        if (len(contour[:, 0]) > min_contour_length) and (a > area_lower_bound):
             range_x = max(contour[:, 1]) - min(contour[:, 1])
             range_y = max(contour[:, 0]) - min(contour[:, 0])
             if additional_filters is True:
-                area = cv2.contourArea(contour.astype(int))
-                if ((range_x > xbound) or (range_y > ybound)) and (
-                    area > area_lower_bound
-                ):
+                if (range_x > xbound) or (range_y > ybound):
                     X, Y = contour[:, 1], contour[:, 0]
                     if X[0] == X[-1]:
                         final_contours.append([X, Y])
@@ -460,7 +491,6 @@ cols = [
 def plot_boxes_and_textboxes(
     image, contours, textboxes, textbox_box_index, path_to_save
 ):
-
     fig, ax = plt.subplots(figsize=(6, 5))
     ax.imshow(image)
     try:
