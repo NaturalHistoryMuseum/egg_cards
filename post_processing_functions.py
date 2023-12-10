@@ -318,7 +318,6 @@ def find_species_results(all_text_segments, non_taxon_list, backup=False):
                         sp = " ".join(map(str, t_[:2]))
                         r = species.name_lookup(sp, kingdom="animals", CLASS="Aves")
                         if len(r["results"]) > 0:
-
                             in_name = False
 
                             for j in taxon_terms:
@@ -354,6 +353,85 @@ def find_species_results(all_text_segments, non_taxon_list, backup=False):
             pass
 
     return species_name, species_index, species_results
+
+
+def verify_species(original_text, results):
+    # Input: original potential species text, GBIF results.
+    # Output: (binary) classification of whether GBIF results align with original text.
+    in_name = False
+    if len(results["results"]) > 0:
+        for j in taxon_terms:
+            try:
+                res = results["results"][0][j]
+                if res.lower() in original_text.lower():
+                    in_name = True
+            except:
+                pass
+    return in_name
+
+
+def check_groups_of_words_for_species(text_list, original_text):
+    text_tuples = [
+        list(zip(text_list, text_list[1:], text_list[2:])),
+        list(zip(text_list, text_list[1:])),
+        text_list,
+    ]
+    # First we try trios of words, then pairs, and the singular words in the original text.
+    found_specie = False
+    final_r = ""
+    final_text = ""
+
+    for tuple_list in text_tuples:
+        results_total = 0
+        for words in tuple_list:
+            if type(words) is str:
+                new_text = deepcopy(words)
+            else:
+                new_text = " ".join(map(str, words))
+            r = species.name_lookup(new_text, kingdom="animals", CLASS="Aves")
+            in_name = verify_species(original_text, r)
+            if (in_name is True) and (len(r["results"]) > results_total):
+                results_total = len(r["results"])
+                final_r = deepcopy(r)
+                final_text = deepcopy(new_text)
+        if results_total > 0:
+            found_specie = True
+
+        if found_specie:
+            break
+
+    return final_r, final_text
+
+
+def updated_find_species_results(species_text):
+    # Input: all text segments from card (OCR output); text index for non-taxonomic text.
+    # Output: species box text, GBIF API results.
+    species_name = ""
+    species_results = ""
+
+    try:
+        found_species = False
+        text_list = re.findall("[a-zA-Z]+", species_text)
+
+        if len(text_list) <= 3:
+            text = " ".join(map(str, text_list))
+            r = species.name_lookup(text, kingdom="animals", CLASS="Aves")
+
+            in_name = verify_species(species_text, r)
+
+            if in_name:
+                species_name = deepcopy(text)
+                species_results = r["results"]
+                found_species = True
+        if found_species is False:
+            species_name, species_results = check_groups_of_words_for_species(
+                text_list, species_text
+            )
+
+    except:
+        pass
+
+    return species_name, species_results
 
 
 def find_species_results_backup(all_text_segments):

@@ -1,5 +1,6 @@
 from text_extraction_functions import *
 from copy import deepcopy
+from post_processing_functions import updated_find_species_results
 from skimage import measure
 import json
 
@@ -9,12 +10,16 @@ import json
 
 
 def get_block_vertices(vertices):
+    # Input: textbox vertices dictionary from Google Vision.
+    # Output: vertices in list format.
     X = [v["x"] for v in vertices]
     Y = [v["y"] for v in vertices]
     return [X, Y]
 
 
 def load_vision_json(path):
+    # Input: path to Google Vision json output.
+    # Output: dictionary of responses.
     f = open(path)
     data = json.load(f)
     vision_response = data["responses"][0]
@@ -30,6 +35,8 @@ def get_boxes_of_main_categories(
     vision_response,
     key_terms=["Date", "Locality", "Set", "Collector", "No", "No.", "Eggs"],
 ):
+    # Input: Google Vision responses.
+    # Output: textboxes around box titles e.g. "Collector", "Date" etc.
     vertices_all = {}
     k = 0
 
@@ -50,6 +57,8 @@ def get_boxes_of_main_categories(
 
 
 def get_centre_categories(vertices_all, pixel_bound=50):
+    # Input: textboxes from main category titles.
+    # Output: dictionary of textbox vertices from main category titles.
     vertices_main = {}
 
     # Find coordinate for "Eggs" in "No. of Eggs" box:
@@ -89,6 +98,8 @@ def get_centre_categories(vertices_all, pixel_bound=50):
 def reformat_image(
     image, vertices_main, text_annotations, boxx, boxy, bound=75, percentile_bound=40
 ):
+    # Input: original image, vertices of main textboxes, textboxes around all text, contour around main card.
+    # Output: modified greyscale image, with top half completely white, and all textboxes turned white.
     img_grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     I = deepcopy(img_grey)
     img_grey[np.where(I > np.percentile(I.flatten(), percentile_bound))] = 255
@@ -109,6 +120,8 @@ def reformat_image(
 
 
 def find_midline(grey_image, thresh=0.8, format=True):
+    # Input: modified greyscale image from reformat_image.
+    # Output: coordinate of the middle line separating the main catergory boxes with the "other text" part of card.
     if format:
         grey_image = grey_image / 255
 
@@ -130,6 +143,8 @@ def find_midline(grey_image, thresh=0.8, format=True):
 
 
 def get_main_box_contour(vision_response, boundx=25, boundy=25):
+    # Input: Google Vision responses.
+    # Output: Coordinates of box around card.
     X, Y = get_block_vertices(
         vision_response["textAnnotations"][0]["boundingPoly"]["vertices"]
     )
@@ -147,7 +162,9 @@ def get_main_box_contour(vision_response, boundx=25, boundy=25):
 # For reg box #
 
 
-def get_reg_box(vertices_main, boxx, boxy, bound=30):
+def v_get_reg_box(vertices_main, boxx, boxy, bound=30):
+    # Input: vertices of textboxes around main category titles; main box contour.
+    # Output: contour around registration number box (vertical, left-side box)
     x1 = min(vertices_main["Locality"]["x"]) - bound
     x2 = min(vertices_main["Date"]["x"]) - bound
     return [min(boxx), min(boxx), x2, x1, min(boxx)], [
@@ -162,7 +179,9 @@ def get_reg_box(vertices_main, boxx, boxy, bound=30):
 # For species box #
 
 
-def get_species_box(vertices_main, boxx, boxy, bound=25):
+def v_get_species_box(vertices_main, boxx, boxy, bound=25):
+    # Input: vertices of textboxes around main category titles; main box contour.
+    # Output: contour around species box.
     x = min(vertices_main["Locality"]["x"]) - bound
     y1 = min(vertices_main["Locality"]["y"]) - bound
     y2 = min(vertices_main["Collector"]["y"]) - bound
@@ -172,7 +191,9 @@ def get_species_box(vertices_main, boxx, boxy, bound=25):
 # For locality box #
 
 
-def get_locality_box(vertices_main, bound=25):
+def v_get_locality_box(vertices_main, bound=25):
+    # Input: vertices of textboxes around main category titles.
+    # Output: contour around locality box.
     x1 = min(vertices_main["Locality"]["x"]) - bound
     x2 = min(vertices_main["Date"]["x"]) - bound
     x3 = min(vertices_main["Collector"]["x"]) - bound
@@ -187,7 +208,9 @@ def get_locality_box(vertices_main, bound=25):
 # For collector box #
 
 
-def get_collector_box(vertices_main, boxx, bound=25):
+def v_get_collector_box(vertices_main, boxx, bound=25):
+    # Input: vertices of textboxes around main category titles; x coordinates of main box contour.
+    # Output: contour around collector box.
     x = min(vertices_main["Collector"]["x"]) - bound
     y1 = min(vertices_main["Collector"]["y"]) - bound
     y2 = min(vertices_main["Set"]["y"]) - bound
@@ -198,9 +221,11 @@ def get_collector_box(vertices_main, boxx, bound=25):
 # For date box #
 
 
-def get_date_box(
+def v_get_date_box(
     vertices_main, midline_x, midline_y, bound=25, boundy=75, midline_method=True
 ):
+    # Input: vertices of textboxes around main category titles; coordinates of "middle line".
+    # Output: contour around date box.
     x1 = min(vertices_main["Date"]["x"]) - bound
     x2 = min(vertices_main["Set"]["x"]) - bound
     y1 = min(vertices_main["Date"]["y"]) - bound
@@ -219,9 +244,11 @@ def get_date_box(
 # For set mark box #
 
 
-def get_setmark_box(
+def v_get_setmark_box(
     vertices_main, midline_x, midline_y, bound=25, boundy=75, midline_method=True
 ):
+    # Input: vertices of textboxes around main category titles; coordinates of "middle line".
+    # Output: contour around set mark box.
     x1 = min(vertices_main["Set"]["x"]) - bound
     x2 = min(vertices_main["Egg"]["x"]) - bound
 
@@ -241,9 +268,11 @@ def get_setmark_box(
 # For no. eggs box #
 
 
-def get_noeggs_box(
+def v_get_noeggs_box(
     vertices_main, boxx, midline_x, midline_y, bound=25, boundy=75, midline_method=True
 ):
+    # Input: vertices of textboxes around main category titles; x coordinates of main box contour; coordinates of "middle line".
+    # Output: contour around no. eggs box.
     x = min(vertices_main["Egg"]["x"]) - bound
 
     y1 = min(vertices_main["Egg"]["y"]) - bound
@@ -261,7 +290,9 @@ def get_noeggs_box(
 # For other box #
 
 
-def get_other_box(boxx, boxy, midline_y, vertices_main, bound=30):
+def v_get_other_box(vertices_main, boxx, boxy, midline_y, bound=30):
+    # Input: vertices of textboxes around main category titles; main box contour, y coordinates of "middle line".
+    # Output: contour around "other text" box.
     x_ = min(vertices_main["Date"]["x"]) - bound
     x = [x_, x_, max(boxx), max(boxx), x_]
     y = [midline_y[0], max(boxy), max(boxy), midline_y[-1], midline_y[0]]
@@ -273,12 +304,14 @@ def get_other_box(boxx, boxy, midline_y, vertices_main, bound=30):
 ###########################
 
 
-def v_get_reg_number(inds_dict, texts):
+def v_get_reg_number(inds_dict, all_words):
+    # Input: dictionary of category indexes per textbox; all texts.
+    # Output: registration number.
     all_text = []
 
     for j in list(inds_dict.keys()):
         if inds_dict[j] == 0:
-            txt = texts[j]
+            txt = all_words[j]
             if len(re.findall("\d+", txt)) > 0:
                 all_text.append(txt)
 
@@ -291,6 +324,8 @@ def v_get_reg_number(inds_dict, texts):
 
 
 def v_check_for_possible_reg_number(texts):
+    # Input: text possibly containing registration number.
+    # Output: binary classification of whether registration number was found.
     reg_ = False
     digits_ = False
     for w in texts:
@@ -307,6 +342,8 @@ def v_check_for_possible_reg_number(texts):
 
 
 def v_get_species_text(inds_dict, all_words):
+    # Input: dictionary of category indexes per textbox; all texts.
+    # Output: text contained in species box, and possible registration number.
     inds = [j for j in list(inds_dict.keys()) if inds_dict[j] == 1]
 
     texts = np.array(all_words)[inds]
@@ -335,6 +372,8 @@ def v_get_species_text(inds_dict, all_words):
 
 
 def v_get_text_from_category_box(inds_dict, all_words, label_index):
+    # Input: dictionary of category indexes per textbox; all texts, category index of interest.
+    # Output: text from specific category box.
     inds = [j for j in list(inds_dict.keys()) if inds_dict[j] == label_index]
 
     texts = np.array(all_words)[inds]
@@ -350,6 +389,8 @@ def v_get_text_from_category_box(inds_dict, all_words, label_index):
 
 
 def v_get_boxes_ref(img_sk, vertices_main, text_annotations, vision_response):
+    # Input: original image, vertices of main category title textboxes, all texts, Google Vision response.
+    # Output: dictionary of contours around all main category boxes.
     boxes_ref_new = {}
 
     # Main box
@@ -360,41 +401,43 @@ def v_get_boxes_ref(img_sk, vertices_main, text_annotations, vision_response):
     x_, y_ = find_midline(Ig)
 
     # 1) Reg number box:
-    X, Y = get_reg_box(vertices_main, boxx, boxy)
+    X, Y = v_get_reg_box(vertices_main, boxx, boxy)
     boxes_ref_new["reg"] = [X, Y]
 
     # 2) Species box:
-    X, Y = get_species_box(vertices_main, boxx, boxy)
+    X, Y = v_get_species_box(vertices_main, boxx, boxy)
     boxes_ref_new["species"] = [X, Y]
 
     # 3) Locality box
-    X, Y = get_locality_box(vertices_main)
+    X, Y = v_get_locality_box(vertices_main)
     boxes_ref_new["locality"] = [X, Y]
 
     # 4) Collector box:
-    X, Y = get_collector_box(vertices_main, boxx)
+    X, Y = v_get_collector_box(vertices_main, boxx)
     boxes_ref_new["collector"] = [X, Y]
 
     # 5) Date Box:
-    X, Y = get_date_box(vertices_main, x_, y_)
+    X, Y = v_get_date_box(vertices_main, x_, y_)
     boxes_ref_new["date"] = [X, Y]
 
     # 6) Set Mark box:
-    X, Y = get_setmark_box(vertices_main, x_, y_)
+    X, Y = v_get_setmark_box(vertices_main, x_, y_)
     boxes_ref_new["setMark"] = [X, Y]
 
     # 7) No. Eggs box:
-    X, Y = get_noeggs_box(vertices_main, boxx, x_, y_)
+    X, Y = v_get_noeggs_box(vertices_main, boxx, x_, y_)
     boxes_ref_new["noOfEggs"] = [X, Y]
 
     # 8) Other box:
-    x, y = get_other_box(boxy, x_, y_, vertices_main)
+    x, y = v_get_other_box(vertices_main, boxy, x_, y_)
     boxes_ref_new["other"] = [x, y]
 
     return boxes_ref_new
 
 
 def get_all_texts_and_box_index(vision_response, boxes_ref, textbox_leeway=30):
+    # Input: Google Vision response, dictionary of contours of cateogory boxes.
+    # Output: Index of all texts based on the category box they appear in; list of all texts.
     new_textboxes = []
     all_words = []
 
@@ -417,7 +460,9 @@ def get_all_texts_and_box_index(vision_response, boxes_ref, textbox_leeway=30):
     return new_inds_dict, all_words
 
 
-def v_get_all_category_text(inds_dict, all_words):
+def v_get_all_category_text(inds_dict, all_words, species_method="new"):
+    # Input: all words from Vision response and category index.
+    # Output: responses per category.
     all_info = {}
     # 1) Registration number and Species:
     # we combine because sometimes these are in the same box.
@@ -443,9 +488,12 @@ def v_get_all_category_text(inds_dict, all_words):
         cardSpecies,
         keywords=["reg no", "locality", "collector", "set mark", "no of eggs"],
     )
-    species_name, species_results = find_species_from_text([cardSpecies], [])
+    if species_method == "new":
+        species_name, species_results = updated_find_species_results(cardSpecies)
+    else:
+        species_name, species_results = find_species_from_text([cardSpecies], [])
     taxon = get_taxon_info(species_name, species_results)
-    all_info["cardSpecies"] = cardSpecies
+    all_info["cardSpecies"] = species_name
     for b in taxon.keys():
         all_info[b] = taxon[b]
 
@@ -510,6 +558,8 @@ def v_get_all_category_text(inds_dict, all_words):
 
 
 def v_get_all_card_info(path_to_json, path_to_image, pixel_bound=50, textbox_leeway=30):
+    # Input: path to Google Vision json, path to image.
+    # Output: image, and category responses.
     # 1) Load image:
     image = io.imread(path_to_image)
     # 2) Load Google Vision output json:
