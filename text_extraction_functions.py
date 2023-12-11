@@ -114,6 +114,13 @@ def remove_category_from_text(keyword, text):
         return final_text
 
 
+def remove_word_from_string(text, word):
+    # removes key word and capitalised key word from text.
+    final_text = text.replace(word, "")
+    final_text = text.replace(word.title(), "")
+    return final_text
+
+
 def remove_all_categories_from_text(
     text,
     keywords=["reg no", "locality", "collector", "date", "set mark", "no of eggs"],
@@ -124,8 +131,7 @@ def remove_all_categories_from_text(
         if keyword == main_word:
             final_text = remove_category_from_text(keyword, final_text)
         else:
-            final_text = final_text.replace(keyword, "")
-            final_text = final_text.replace(keyword.title(), "")
+            final_text = remove_word_from_string(final_text, keyword)
 
     return final_text
 

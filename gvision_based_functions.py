@@ -482,6 +482,9 @@ def v_get_all_category_text(inds_dict, all_words, species_method="new"):
         if len(c2) > len(c1):
             reg = deepcopy(reg_backup)
     reg = remove_all_categories_from_text(reg, main_word="reg no")
+    reg = remove_word_from_string(reg, "reg no")
+    reg = ".".join(re.findall("\d+", reg))
+
     all_info["registrationNumber"] = reg
     # Species
     cardSpecies = remove_all_categories_from_text(
@@ -523,6 +526,7 @@ def v_get_all_category_text(inds_dict, all_words, species_method="new"):
     except:
         date = "N/A"
     date = remove_all_categories_from_text(date, main_word="date")
+    date = remove_word_from_string(date, "date")
     all_info["date"] = date
 
     # 5) Set Mark:

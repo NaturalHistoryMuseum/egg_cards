@@ -500,19 +500,41 @@ def get_taxon_info(species, results):
     # Input: results from find_species_from_text
     # Output: Taxonomic information from GBIF API.
     taxon = {}
+    # If there are multiple results, pick the first one.
+    results_0 = results[0]
+    taxon = get_gbif_taxon(results_0)
+    k = count_blanks_from_taxon(taxon)
+    if k >= 2:
+        results_1 = results[1]
+        taxon1 = get_gbif_taxon(results_1)
+        k1 = count_blanks_from_taxon(taxon1)
+        if k1 < k:
+            taxon = deepcopy(taxon1)
+    return taxon
 
-    if type(species) != str:
-        # If there are multiple results, pick the first one.
-        results = results[0]
 
+def get_gbif_taxon(results):
+    # Input: results from find_species_from_text
+    # Output: Taxonomic information from GBIF API.
+    taxon = {}
     for term in taxon_terms:
         try:
-            t = results[0][term]
+            t = results[term]
         except:
             t = ""
         taxon[term] = t
-
     return taxon
+
+
+def count_blanks_from_taxon(taxon):
+    # Count number of empty taxon entries.
+    # Input: taxon.
+    # Output: number of blanks.
+    k = 0
+    for key in taxon.keys():
+        if taxon[key] == "":
+            k += 1
+    return k
 
 
 # 2 -- REG NUMBER FUNCTIONS
