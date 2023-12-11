@@ -429,8 +429,8 @@ def v_get_boxes_ref(img_sk, vertices_main, text_annotations, vision_response):
     boxes_ref_new["noOfEggs"] = [X, Y]
 
     # 8) Other box:
-    x, y = v_get_other_box(vertices_main, boxy, x_, y_)
-    boxes_ref_new["other"] = [x, y]
+    X, Y = v_get_other_box(vertices_main, boxx, boxy, y_)
+    boxes_ref_new["other"] = [X, Y]
 
     return boxes_ref_new
 
@@ -457,7 +457,7 @@ def get_all_texts_and_box_index(vision_response, boxes_ref, textbox_leeway=30):
         np.array(new_textboxes), list(boxes_ref.values()), textbox_leeway=textbox_leeway
     )
 
-    return new_inds_dict, all_words
+    return new_inds_dict, all_words, new_textboxes
 
 
 def v_get_all_category_text(inds_dict, all_words, species_method="new"):
@@ -571,7 +571,7 @@ def v_get_all_card_info(path_to_json, path_to_image, pixel_bound=50, textbox_lee
     # 4) Get contours around category boxes:
     boxes_ref = v_get_boxes_ref(image, vertices_main, text_annotations, vision_response)
     # 5) Group textboxes with category boxes:
-    inds_dict, all_words = get_all_texts_and_box_index(
+    inds_dict, all_words, _ = get_all_texts_and_box_index(
         vision_response, boxes_ref, textbox_leeway=textbox_leeway
     )
     # 6) Sort out texts by category:

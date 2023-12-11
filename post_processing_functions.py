@@ -400,7 +400,7 @@ def check_groups_of_words_for_species(text_list, original_text):
         if found_specie:
             break
 
-    return final_r, final_text
+    return final_text, final_r["results"]
 
 
 def updated_find_species_results(species_text):

@@ -380,10 +380,21 @@ def refine_boxes(all_boxes, pixel_proximity_bound=110):
         return new_boxes
 
 
+def check_line_above_or_below(all_box_details, index, textbox_miny):
+    # Checks whether textbox is above or below the top line of a category box.
+    # Input: category boxes, index of interest, minimum y coordindate of textbox.
+    # Output: "above" or "below"
+    _, _, box_miny, _ = all_box_details[index]
+    if textbox_miny > box_miny:
+        return "above"
+    else:
+        return "below"
+
+
 def get_box_index_for_textboxes(
     craft_textboxes, eggcard_boxes, textbox_leeway=10, show_NA=False
 ):
-    # Input: boxe contours, textboxes (from CRAFT), leeway (in pixels) for textbox.
+    # Input: boxe contours, textboxes (e.g., from CRAFT), leeway (in pixels) for textbox.
     # Output: dictionary of box index for each textbox.
     textbox_box_index = {}
     all_box_details = [get_box_details(box_contour) for box_contour in eggcard_boxes]
@@ -399,6 +410,8 @@ def get_box_index_for_textboxes(
             box_index = deepcopy(biggest_box_ind)
         else:
             box_index = "N/A"
+        box_index_options = []
+        box_areas = []
         for index, box_contour in enumerate(eggcard_boxes):
             box_minx, box_maxx, box_miny, box_maxy = all_box_details[index]
             area = areas[index]
@@ -410,9 +423,24 @@ def get_box_index_for_textboxes(
                     (textbox_maxy <= box_maxy + textbox_leeway),
                 )
             ) and (area < box_size):
-                box_index = deepcopy(index)
-                box_size = deepcopy(area)
-        textbox_box_index[u] = box_index
+                box_index_options.append(index)
+                box_areas.append(area)
+                box_size = max(box_areas)
+        if len(box_index_options) == 1:
+            textbox_box_index[u] = deepcopy(box_index_options[0])
+        else:
+            above_or_below = [
+                check_line_above_or_below(all_box_details, index, textbox_miny)
+                for index in box_index_options
+            ]
+            above = np.where(np.array(above_or_below) == "above")[0]
+            if len(above) == 1:
+                textbox_box_index[u] = box_index_options[above[0]]
+            elif len(above) > 1:
+                areas_ = [box_areas[ind] for ind in above]
+                textbox_box_index[u] = box_index_options[above[np.argmin(areas_)]]
+            else:
+                textbox_box_index[u] = box_index_options[np.argmin(box_areas)]
 
     return textbox_box_index
 
