@@ -85,7 +85,9 @@ def check_gvision_vertices(vertices_all, text_annotations, fuzzy_bound=90):
 
         if bounding_poly:
             for term in missing_terms:
-                if fuzz.ratio(term, description) > fuzzy_bound:
+                if (fuzz.ratio(term, description) > fuzzy_bound) or (
+                    term in description
+                ):
                     x, y = get_block_vertices(bounding_poly)
                     description = deepcopy(term)
                     if description not in found_terms:
@@ -105,7 +107,11 @@ def check_gvision_vertices(vertices_all, text_annotations, fuzzy_bound=90):
                             vertices_all_new[t]["x"] = x
                             vertices_all_new[t]["y"] = y
 
-    return vertices_all_new
+    all_found = True
+    if len(missing_terms) != len(found_terms):
+        all_found = False
+
+    return vertices_all_new, all_found
 
 
 def get_centre_categories(vertices_all, pixel_bound=50):
@@ -628,9 +634,13 @@ def v_get_all_card_info(
     text_annotations = vision_response.get("textAnnotations", [])
     # 3) Get textboxes from Vision output:
     vertices_all = get_boxes_of_main_categories(vision_response)
-    vertices_all_refined = check_gvision_vertices(
+    vertices_all_refined, found_missing = check_gvision_vertices(
         vertices_all, text_annotations, fuzzy_bound=min_fuzzy_bound
     )
+    if found_missing is False:
+        vertices_all_refined, _ = check_gvision_vertices(
+            vertices_all_refined, text_annotations, fuzzy_bound=min_fuzzy_bound - 10
+        )
     vertices_main = get_centre_categories(vertices_all_refined, pixel_bound=pixel_bound)
     # 4) Get contours around category boxes:
     boxes_ref = v_get_boxes_ref(image, vertices_main, text_annotations, vision_response)
