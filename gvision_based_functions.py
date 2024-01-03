@@ -3,6 +3,7 @@ from copy import deepcopy
 from post_processing_functions import updated_find_species_results
 from skimage import measure
 import json
+from fuzzywuzzy import fuzz
 
 ##################
 # Basic Functions
@@ -32,15 +33,14 @@ def load_vision_json(path):
 
 
 def get_boxes_of_main_categories(
-    vision_response,
-    key_terms=["Date", "Locality", "Set", "Collector", "No", "No.", "Eggs"],
+    text_annotations,
+    key_terms=["Date", "Locality", "Set", "Collector", "No", "No.", "No.of", "Eggs"],
 ):
-    # Input: Google Vision responses.
+    # Input: Google Vision text responses.
     # Output: textboxes around box titles e.g. "Collector", "Date" etc.
     vertices_all = {}
     k = 0
-
-    text_annotations = vision_response.get("textAnnotations", [])
+    found_terms = []
     for annotation in text_annotations:
         description = annotation.get("description", "")
         bounding_poly = annotation.get("boundingPoly", {}).get("vertices", [])
@@ -50,10 +50,62 @@ def get_boxes_of_main_categories(
                 # Process bounding box coordinates
                 # Draw bounding box using these coordinates
                 x, y = get_block_vertices(bounding_poly)
-                vertices_all.update({k: {"x": x, "y": y, "text": description}})
-                k = k + 1
+                if description not in found_terms:
+                    vertices_all.update({k: {"x": x, "y": y, "text": description}})
+                    k = k + 1
+                    found_terms.append(description)
+                else:
+                    t = [
+                        p
+                        for p in vertices_all.keys()
+                        if vertices_all[p]["text"] == description
+                    ][0]
+                    min_y_orig = min(vertices_all[t]["y"])
+                    if min(y) < min_y_orig:
+                        vertices_all[t]["x"] = x
+                        vertices_all[t]["y"] = y
 
     return vertices_all
+
+
+def check_gvision_vertices(vertices_all, text_annotations, fuzzy_bound=90):
+    # Input: Output of get_boxes_of_main_categories, Google Vision text responses, minimum fuzzy bound.
+    # Output: textboxes around box titles e.g. "Collector", "Date" etc (refined to find missing categories).
+    terms = ["Date", "Locality", "Set", "Collector", "Eggs"]
+    found_text = [vertices_all[k]["text"] for k in vertices_all.keys()]
+    missing_terms = [term for term in terms if term not in found_text]
+
+    k = len(vertices_all)
+    found_terms = []
+    vertices_all_new = deepcopy(vertices_all)
+
+    for annotation in text_annotations:
+        description = annotation.get("description", "")
+        bounding_poly = annotation.get("boundingPoly", {}).get("vertices", [])
+
+        if bounding_poly:
+            for term in missing_terms:
+                if fuzz.ratio(term, description) > fuzzy_bound:
+                    x, y = get_block_vertices(bounding_poly)
+                    description = deepcopy(term)
+                    if description not in found_terms:
+                        vertices_all_new.update(
+                            {k: {"x": x, "y": y, "text": description}}
+                        )
+                        k = k + 1
+                        found_terms.append(description)
+                    else:
+                        t = [
+                            p
+                            for p in vertices_all.keys()
+                            if vertices_all[p]["text"] == description
+                        ][0]
+                        min_y_orig = min(vertices_all[t]["y"])
+                        if min(y) < min_y_orig:
+                            vertices_all_new[t]["x"] = x
+                            vertices_all_new[t]["y"] = y
+
+    return vertices_all_new
 
 
 def get_centre_categories(vertices_all, pixel_bound=50):
@@ -72,9 +124,9 @@ def get_centre_categories(vertices_all, pixel_bound=50):
         text = vertices_all[j]["text"]
         x = vertices_all[j]["x"]
         y = vertices_all[j]["y"]
-        if text not in ["No", "No.", "Eggs"]:
+        if text not in ["No", "No.", "No.of", "Eggs"]:
             vertices_main.update({text: {"x": x, "y": y}})
-        elif text in ["No.", "No"]:
+        elif text in ["No.", "No", "No.of"]:
             y_avg = np.average(y)
             if abs(y_avg - y_egg_avg) < pixel_bound:
                 vertices_main.update({text: {"x": x, "y": y}})
@@ -83,7 +135,10 @@ def get_centre_categories(vertices_all, pixel_bound=50):
     try:
         vertices_main_["Egg"] = vertices_main["No."]
     except:
-        vertices_main_["Egg"] = vertices_main["No"]
+        try:
+            vertices_main_["Egg"] = vertices_main["No"]
+        except:
+            vertices_main_["Egg"] = vertices_main["No.of"]
 
     return vertices_main_
 
@@ -561,7 +616,9 @@ def v_get_all_category_text(inds_dict, all_words, species_method="new"):
 ##############
 
 
-def v_get_all_card_info(path_to_json, path_to_image, pixel_bound=50, textbox_leeway=30):
+def v_get_all_card_info(
+    path_to_json, path_to_image, pixel_bound=50, textbox_leeway=30, min_fuzzy_bound=90
+):
     # Input: path to Google Vision json, path to image.
     # Output: image, and category responses.
     # 1) Load image:
@@ -571,7 +628,10 @@ def v_get_all_card_info(path_to_json, path_to_image, pixel_bound=50, textbox_lee
     text_annotations = vision_response.get("textAnnotations", [])
     # 3) Get textboxes from Vision output:
     vertices_all = get_boxes_of_main_categories(vision_response)
-    vertices_main = get_centre_categories(vertices_all, pixel_bound=pixel_bound)
+    vertices_all_refined = check_gvision_vertices(
+        vertices_all, text_annotations, fuzzy_bound=min_fuzzy_bound
+    )
+    vertices_main = get_centre_categories(vertices_all_refined, pixel_bound=pixel_bound)
     # 4) Get contours around category boxes:
     boxes_ref = v_get_boxes_ref(image, vertices_main, text_annotations, vision_response)
     # 5) Group textboxes with category boxes:
