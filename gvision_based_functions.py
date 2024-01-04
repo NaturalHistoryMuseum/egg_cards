@@ -79,7 +79,7 @@ def check_gvision_vertices(vertices_all, text_annotations, fuzzy_bound=90):
     found_terms = []
     vertices_all_new = deepcopy(vertices_all)
 
-    for annotation in text_annotations:
+    for annotation in text_annotations[1:]:
         description = annotation.get("description", "")
         bounding_poly = annotation.get("boundingPoly", {}).get("vertices", [])
 
@@ -99,10 +99,10 @@ def check_gvision_vertices(vertices_all, text_annotations, fuzzy_bound=90):
                     else:
                         t = [
                             p
-                            for p in vertices_all.keys()
-                            if vertices_all[p]["text"] == description
+                            for p in vertices_all_new.keys()
+                            if vertices_all_new[p]["text"] == description
                         ][0]
-                        min_y_orig = min(vertices_all[t]["y"])
+                        min_y_orig = min(vertices_all_new[t]["y"])
                         if min(y) < min_y_orig:
                             vertices_all_new[t]["x"] = x
                             vertices_all_new[t]["y"] = y
@@ -120,11 +120,13 @@ def get_centre_categories(vertices_all, pixel_bound=50):
     vertices_main = {}
 
     # Find coordinate for "Eggs" in "No. of Eggs" box:
-    for p in vertices_all.keys():
-        if vertices_all[p]["text"] == "Eggs":
-            y_egg_avg = np.average(vertices_all[p]["y"])
+    egg_box = [p for p in vertices_all.keys() if vertices_all[p]["text"] == "Eggs"]
+    egg_box = vertices_all[egg_box[0]]
+    y_egg_avg = np.average(egg_box["y"])
 
     k = len(vertices_all)
+
+    no = "No"
 
     for j in range(k):
         text = vertices_all[j]["text"]
@@ -135,16 +137,18 @@ def get_centre_categories(vertices_all, pixel_bound=50):
         elif text in ["No.", "No", "No.of"]:
             y_avg = np.average(y)
             if abs(y_avg - y_egg_avg) < pixel_bound:
+                no = deepcopy(text)
                 vertices_main.update({text: {"x": x, "y": y}})
 
     vertices_main_ = deepcopy(vertices_main)
     try:
-        vertices_main_["Egg"] = vertices_main["No."]
+        vertices_main_["Egg"] = vertices_main[no]
     except:
-        try:
-            vertices_main_["Egg"] = vertices_main["No"]
-        except:
-            vertices_main_["Egg"] = vertices_main["No.of"]
+        # Approxiamte box around the start of "No. of Eggs"
+        x = egg_box["x"]
+        y = egg_box["y"]
+        x = [max(p, 0) for p in list(np.array(x) - (max(x) - min(x)))]
+        vertices_main_.update({"Egg": {"x": x, "y": y}})
 
     return vertices_main_
 
@@ -496,7 +500,9 @@ def v_get_boxes_ref(img_sk, vertices_main, text_annotations, vision_response):
     return boxes_ref_new
 
 
-def get_all_texts_and_box_index(vision_response, boxes_ref, textbox_leeway=30):
+def get_all_texts_and_box_index(
+    vision_response, boxes_ref, textbox_leeway=30, leeway_backup=15
+):
     # Input: Google Vision response, dictionary of contours of cateogory boxes.
     # Output: Index of all texts based on the category box they appear in; list of all texts.
     new_textboxes = []
@@ -513,10 +519,18 @@ def get_all_texts_and_box_index(vision_response, boxes_ref, textbox_leeway=30):
                 Y.append(y)
             new_textboxes.append(np.array([X, Y], dtype=np.float32).T)
             all_words.append(p["description"])
-
-    new_inds_dict = get_box_index_for_textboxes(
-        np.array(new_textboxes), list(boxes_ref.values()), textbox_leeway=textbox_leeway
-    )
+    try:
+        new_inds_dict = get_box_index_for_textboxes(
+            np.array(new_textboxes),
+            list(boxes_ref.values()),
+            textbox_leeway=textbox_leeway,
+        )
+    except:
+        new_inds_dict = get_box_index_for_textboxes(
+            np.array(new_textboxes),
+            list(boxes_ref.values()),
+            textbox_leeway=textbox_leeway + leeway_backup,
+        )
 
     return new_inds_dict, all_words, new_textboxes
 

@@ -496,21 +496,20 @@ def find_species_from_text(all_text_segments, non_taxon_list, backup=False):
         return species_name, species_results
 
 
-def get_taxon_info(species, results):
+def get_taxon_info(species, results, max_results_to_check=3):
     # Input: results from find_species_from_text
     # Output: Taxonomic information from GBIF API.
     try:
-        taxon = {}
-        # If there are multiple results, pick the first one.
-        results_0 = results[0]
-        taxon = get_gbif_taxon(results_0)
-        k = count_blanks_from_taxon(taxon)
-        if k >= 2:
-            results_1 = results[1]
-            taxon1 = get_gbif_taxon(results_1)
-            k1 = count_blanks_from_taxon(taxon1)
-            if k1 < k:
-                taxon = deepcopy(taxon1)
+        taxons = []
+        blanks = []
+        for gbif_result in results[:max_results_to_check]:
+            taxon = get_gbif_taxon(gbif_result)
+            k = count_blanks_from_taxon(taxon)
+            blanks.append(k)
+            taxons.append(taxon)
+
+        min_blanks_index = np.argmin(blanks)
+        taxon = deepcopy(taxons[min_blanks_index])
     except:
         taxon = get_gbif_taxon(results)
     return taxon

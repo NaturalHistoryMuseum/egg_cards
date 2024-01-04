@@ -392,7 +392,11 @@ def check_line_above_or_below(all_box_details, index, textbox_miny):
 
 
 def get_box_index_for_textboxes(
-    craft_textboxes, eggcard_boxes, textbox_leeway=10, show_NA=False
+    craft_textboxes,
+    eggcard_boxes,
+    textbox_leeway=10,
+    show_NA=False,
+    backup_max_horizontal_leeway=150,
 ):
     # Input: boxe contours, textboxes (e.g., from CRAFT), leeway (in pixels) for textbox.
     # Output: dictionary of box index for each textbox.
@@ -426,6 +430,25 @@ def get_box_index_for_textboxes(
                 box_index_options.append(index)
                 box_areas.append(area)
                 box_size = max(box_areas)
+
+        if len(box_areas) == 0:
+            # If no box has been found, this is usually because parts of the textbox can
+            # be found in multiple boxes on the card (usually horizontal to each other).
+            for index, box_contour in enumerate(eggcard_boxes):
+                box_minx, box_maxx, box_miny, box_maxy = all_box_details[index]
+                area = areas[index]
+                if all(
+                    (
+                        (textbox_minx >= box_minx - textbox_leeway),
+                        (textbox_maxx <= box_maxx + backup_max_horizontal_leeway),
+                        (textbox_miny >= box_miny - textbox_leeway),
+                        (textbox_maxy <= box_maxy + textbox_leeway),
+                    )
+                ) and (area < box_size):
+                    box_index_options.append(index)
+                    box_areas.append(area)
+                    box_size = max(box_areas)
+
         if len(box_index_options) == 1:
             textbox_box_index[u] = deepcopy(box_index_options[0])
         else:
