@@ -557,7 +557,10 @@ def v_get_all_category_text(inds_dict, all_words, species_method="new"):
     else:
         species_name, species_results = find_species_from_text([cardSpecies], [])
     taxon = get_taxon_info(species_name, species_results)
-    all_info["cardSpecies"] = species_name
+    if len(species_name) == 0:
+        all_info["cardSpecies"] = cardSpecies
+    else:
+        all_info["cardSpecies"] = species_name
     for b in taxon.keys():
         all_info[b] = taxon[b]
 
@@ -633,7 +636,7 @@ def v_get_all_card_info(
     vision_response = load_vision_json(path_to_json)
     text_annotations = vision_response.get("textAnnotations", [])
     # 3) Get textboxes from Vision output:
-    vertices_all = get_boxes_of_main_categories(vision_response)
+    vertices_all = get_boxes_of_main_categories(text_annotations)
     vertices_all_refined, found_missing = check_gvision_vertices(
         vertices_all, text_annotations, fuzzy_bound=min_fuzzy_bound
     )

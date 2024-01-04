@@ -499,17 +499,20 @@ def find_species_from_text(all_text_segments, non_taxon_list, backup=False):
 def get_taxon_info(species, results):
     # Input: results from find_species_from_text
     # Output: Taxonomic information from GBIF API.
-    taxon = {}
-    # If there are multiple results, pick the first one.
-    results_0 = results[0]
-    taxon = get_gbif_taxon(results_0)
-    k = count_blanks_from_taxon(taxon)
-    if k >= 2:
-        results_1 = results[1]
-        taxon1 = get_gbif_taxon(results_1)
-        k1 = count_blanks_from_taxon(taxon1)
-        if k1 < k:
-            taxon = deepcopy(taxon1)
+    try:
+        taxon = {}
+        # If there are multiple results, pick the first one.
+        results_0 = results[0]
+        taxon = get_gbif_taxon(results_0)
+        k = count_blanks_from_taxon(taxon)
+        if k >= 2:
+            results_1 = results[1]
+            taxon1 = get_gbif_taxon(results_1)
+            k1 = count_blanks_from_taxon(taxon1)
+            if k1 < k:
+                taxon = deepcopy(taxon1)
+    except:
+        taxon = get_gbif_taxon(results)
     return taxon
 
 
