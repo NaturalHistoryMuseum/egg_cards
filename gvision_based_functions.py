@@ -369,7 +369,9 @@ def v_get_other_box(vertices_main, boxx, boxy, midline_y, bound=30):
 ###########################
 
 
-def v_get_reg_number(inds_dict, all_words):
+def v_get_reg_number(
+    inds_dict, all_words, final_textboxes, ignore_horizontal_in_reg_box=False
+):
     # Input: dictionary of category indexes per textbox; all texts.
     # Output: registration number.
     all_text = []
@@ -378,7 +380,19 @@ def v_get_reg_number(inds_dict, all_words):
         if inds_dict[j] == 0:
             txt = all_words[j]
             if len(re.findall("\d+", txt)) > 0:
-                all_text.append(txt)
+                if ignore_horizontal_in_reg_box == True:
+                    box = final_textboxes[j]
+                    horizontal_or_vertical = detect_orientation(box[:, 0], box[:, 1])
+                    if horizontal_or_vertical == "v":
+                        all_text.append(txt)
+                else:
+                    all_text.append(txt)
+
+    try:
+        # Order all_text by length of string.
+        all_text = np.array(all_text)[np.argsort([len(a) for a in all_text])[::-1]]
+    except:
+        pass
 
     try:
         final_reg = ".".join(map(str, re.findall("\w+", " ".join(map(str, all_text)))))
@@ -535,14 +549,25 @@ def get_all_texts_and_box_index(
     return new_inds_dict, all_words, new_textboxes
 
 
-def v_get_all_category_text(inds_dict, all_words, species_method="new"):
+def v_get_all_category_text(
+    inds_dict,
+    all_words,
+    final_textboxes,
+    species_method="new",
+    ignore_horizontal_in_reg_box=False,
+):
     # Input: all words from Vision response and category index.
     # Output: responses per category.
     all_info = {}
     # 1) Registration number and Species:
     # we combine because sometimes these are in the same box.
     try:
-        reg = v_get_reg_number(inds_dict, all_words)
+        reg = v_get_reg_number(
+            inds_dict,
+            all_words,
+            final_textboxes,
+            ignore_horizontal_in_reg_box=ignore_horizontal_in_reg_box,
+        )
     except:
         reg = "N/A"
     try:
@@ -662,10 +687,10 @@ def v_get_all_card_info(
     # 4) Get contours around category boxes:
     boxes_ref = v_get_boxes_ref(image, vertices_main, text_annotations, vision_response)
     # 5) Group textboxes with category boxes:
-    inds_dict, all_words, _ = get_all_texts_and_box_index(
+    inds_dict, all_words, final_textboxes = get_all_texts_and_box_index(
         vision_response, boxes_ref, textbox_leeway=textbox_leeway
     )
     # 6) Sort out texts by category:
-    all_info = v_get_all_category_text(inds_dict, all_words)
+    all_info = v_get_all_category_text(inds_dict, all_words, final_textboxes)
 
     return image, all_info
