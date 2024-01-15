@@ -169,7 +169,18 @@ def reformat_image(
     I = deepcopy(img_grey)
     img_grey[np.where(I > np.percentile(I.flatten(), percentile_bound))] = 255
 
-    img_grey[: int(min(vertices_main["Date"]["y"]) - 1), :] = 255
+    try:
+        y_lim = max(
+            [
+                max(vertices_main["Date"]["y"]),
+                max(vertices_main["Set"]["y"]),
+                max(vertices_main["Egg"]["y"]),
+            ]
+        )
+    except:
+        y_lim = max(vertices_main["Date"]["y"])
+
+    img_grey[: int(y_lim - 1), :] = 255
     img_grey[:, : int(min(vertices_main["Date"]["x"]) - 1)] = 255
     img_grey[int(max(boxy) - bound) :, :] = 255
     img_grey[:, int(max(boxx) - bound) :] = 255
@@ -184,7 +195,7 @@ def reformat_image(
     return img_grey_new
 
 
-def find_midline(grey_image, thresh=0.8, format=True):
+def find_midline(grey_image, max_y_diff=100, thresh=0.8, format=True):
     # Input: modified greyscale image from reformat_image.
     # Output: coordinate of the middle line separating the main catergory boxes with the "other text" part of card.
     if format:
@@ -201,7 +212,14 @@ def find_midline(grey_image, thresh=0.8, format=True):
     x_ = np.sort(x)
     y_ = np.array(y)[np.argsort(x)]
 
-    return [x_[0], x_[-1]], [y_[0], y_[-1]]
+    x_mid = [x_[0], x_[-1]]
+    y_mid = [y_[0], y_[-1]]
+
+    if abs(y_mid[0] - y_mid[1]) < max_y_diff:
+        mx = max(y_mid)
+        y_mid = [mx, mx]
+
+    return x_mid, y_mid
 
 
 # For main box #
@@ -596,8 +614,8 @@ def v_get_all_category_text(
     else:
         species_name, species_results = find_species_from_text([cardSpecies], [])
     taxon = get_taxon_info(species_name, species_results)
-    if len(species_name) == 0:
-        all_info["cardSpecies"] = cardSpecies
+    if (len(species_name) == 0) or (len(re.findall("\w+", species_name)) == 1):
+        all_info["cardSpecies"] = " ".join(re.findall("\w+", cardSpecies))
     else:
         all_info["cardSpecies"] = species_name
     for b in taxon.keys():
