@@ -1,6 +1,10 @@
 from text_extraction_functions import *
 from copy import deepcopy
-from post_processing_functions import updated_find_species_results
+from post_processing_functions import (
+    updated_find_species_results,
+    count_blanks_from_taxon,
+    backup_species_extraction_by_combining_words,
+)
 from skimage import measure
 import json
 from fuzzywuzzy import fuzz
@@ -388,7 +392,11 @@ def v_get_other_box(vertices_main, boxx, boxy, midline_y, bound=30):
 
 
 def v_get_reg_number(
-    inds_dict, all_words, final_textboxes, ignore_horizontal_in_reg_box=False
+    inds_dict,
+    all_words,
+    final_textboxes,
+    ignore_horizontal_in_reg_box=False,
+    order_text=False,
 ):
     # Input: dictionary of category indexes per textbox; all texts.
     # Output: registration number.
@@ -405,12 +413,12 @@ def v_get_reg_number(
                         all_text.append(txt)
                 else:
                     all_text.append(txt)
-
-    try:
-        # Order all_text by length of string.
-        all_text = np.array(all_text)[np.argsort([len(a) for a in all_text])[::-1]]
-    except:
-        pass
+    if order_text:
+        try:
+            # Order all_text by length of string.
+            all_text = np.array(all_text)[np.argsort([len(a) for a in all_text])[::-1]]
+        except:
+            pass
 
     try:
         final_reg = ".".join(map(str, re.findall("\w+", " ".join(map(str, all_text)))))
@@ -614,6 +622,22 @@ def v_get_all_category_text(
     else:
         species_name, species_results = find_species_from_text([cardSpecies], [])
     taxon = get_taxon_info(species_name, species_results)
+
+    taxon_blanks = count_blanks_from_taxon(taxon, list(taxon.keys())[:4])
+    if (taxon_blanks >= 3) and (len(re.findall("\w+", cardSpecies)) > 3):
+        (
+            species_name_new,
+            species_results_new,
+            combined_name,
+        ) = backup_species_extraction_by_combining_words(cardSpecies)
+        taxon_new = get_taxon_info(species_name_new, species_results_new)
+        taxon_new_blanks = count_blanks_from_taxon(
+            taxon_new, list(taxon_new.keys())[:4]
+        )
+        if (taxon_new_blanks < taxon_blanks) and (len(species_name_new) > 0):
+            taxon = deepcopy(taxon_new)
+            species_name = deepcopy(combined_name)
+
     if (len(species_name) == 0) or (len(re.findall("\w+", species_name)) == 1):
         all_info["cardSpecies"] = " ".join(re.findall("\w+", cardSpecies))
     else:

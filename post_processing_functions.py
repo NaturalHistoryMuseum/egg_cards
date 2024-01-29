@@ -62,6 +62,30 @@ key_terms_p_ordered = [
 ]
 taxon_terms = ["order", "family", "genus", "species", "canonicalName"]
 
+variations_index = [
+    ["0", "1", "2", "3", "4", "5", "6"],
+    ["01", "2", "3", "4", "5", "6"],
+    ["01", "23", "4", "5", "6"],
+    ["01", "23", "45", "6"],
+    ["01", "23", "4", "56"],
+    ["01", "2", "34", "5", "6"],
+    ["01", "2", "34", "56"],
+    ["01", "2", "3", "45", "6"],
+    ["01", "2", "4", "56"],
+    ["0", "12", "3", "4", "5", "6"],
+    ["0", "12", "34", "5", "6"],
+    ["0", "12", "34", "56"],
+    ["0", "12", "3", "45", "6"],
+    ["0", "12", "3", "4", "56"],
+    ["0", "1", "23", "4", "5", "6"],
+    ["0", "1", "23", "45", "6"],
+    ["0", "1", "23", "4", "56"],
+    ["0", "1", "2", "34", "5", "6"],
+    ["0", "1", "2", "34", "56"],
+    ["0", "1", "2", "3", "45", "6"],
+    ["0", "1", "2", "3", "4", "56"],
+]
+
 ###################
 # GENERAL FUNCTIONS
 ###################
@@ -149,7 +173,35 @@ def review_text_segments(all_text_segments, text_terms):
     return new_segmented_texts
 
 
-############
+def combine_consecutive_words(original_text):
+    # This function is used as part of the backup species extraction method.
+    # The aim is to combine consecutive words that appear in a text segment.
+    # Input: text (text from species box is the primary use)
+    # Output: variations of the text based on combining consecutive words.
+    variations = []
+    text = re.findall("\w+", original_text)
+    for p in variations_index:
+        word = []
+        for j in p:
+            try:
+                if len(j) == 1:
+                    word.append(text[int(j)])
+                else:
+                    word.append(text[int(j[0])] + text[int(j[1])])
+            except:
+                try:
+                    word.append(text[int(j[0])])
+                except:
+                    pass
+        w_ = " ".join(word)
+        if w_ not in variations:
+            variations.append(w_)
+    return variations
+
+
+#################################################
+
+
 def get_missing_terms(text_keys):
     # Input: dictionary of text indexes per key term.
     # Output: missing key terms
@@ -496,6 +548,47 @@ def find_species_from_text(all_text_segments, non_taxon_list, backup=False):
         return species_name, species_results
 
 
+def find_species_from_word_combinations(variations):
+    # Input: list of text variations (by combining consecutive words)
+    # Ouput: species name and GBIF result, and best combined name.
+    no_errors = 5
+    final_sp = ""
+    final_sp_result = ""
+    final_combination = ""
+    tried_names = []
+
+    for v in variations:
+        species_name, species_result = updated_find_species_results(v)
+        if (species_name not in tried_names) and (len(species_name) > 3):
+            print(species_name)
+            tried_names.append(species_name)
+            taxon = get_taxon_info(species_name, species_result)
+            k = count_blanks_from_taxon(taxon, taxon.keys())
+            if k < no_errors:
+                final_sp = deepcopy(species_name)
+                final_sp_result = deepcopy(species_result)
+                no_errors = deepcopy(k)
+                final_combination = deepcopy(v)
+    return final_sp, final_sp_result, final_combination
+
+
+def backup_species_extraction_by_combining_words(text):
+    # Input: original text from species box.
+    # Ouput: species name and GBIF result, and best combined name.
+    word_combinations = combine_consecutive_words(text)
+    try:
+        (
+            species_name,
+            species_results,
+            combined_name,
+        ) = find_species_from_word_combinations(word_combinations)
+    except:
+        species_name = ""
+        species_results = ""
+        combined_name = ""
+    return species_name, species_results, combined_name
+
+
 def get_taxon_info(species, results, max_results_to_check=3):
     # Input: results from find_species_from_text
     # Output: Taxonomic information from GBIF API.
@@ -503,10 +596,12 @@ def get_taxon_info(species, results, max_results_to_check=3):
         taxons = []
         blanks = []
         for gbif_result in results[:max_results_to_check]:
-            taxon = get_gbif_taxon(gbif_result)
-            k = count_blanks_from_taxon(taxon)
-            blanks.append(k)
-            taxons.append(taxon)
+            aves = check_gbif_class_is_aves(gbif_result)
+            if aves == 1:
+                taxon = get_gbif_taxon(gbif_result)
+                k = count_blanks_from_taxon(taxon, taxon.keys())
+                blanks.append(k)
+                taxons.append(taxon)
 
         min_blanks_index = np.argmin(blanks)
         taxon = deepcopy(taxons[min_blanks_index])
@@ -528,15 +623,27 @@ def get_gbif_taxon(results):
     return taxon
 
 
-def count_blanks_from_taxon(taxon):
+def count_blanks_from_taxon(taxon, t_keys):
     # Count number of empty taxon entries.
     # Input: taxon.
     # Output: number of blanks.
     k = 0
-    for key in taxon.keys():
+    for key in t_keys:
         if taxon[key] == "":
             k += 1
     return k
+
+
+def check_gbif_class_is_aves(result):
+    # Input: gbif result
+    # Output: binary, whether result is of class 'Aves'.
+    aves = 1
+    try:
+        if result["class"] != "Aves":
+            aves = 0
+    except:
+        pass
+    return aves
 
 
 # 2 -- REG NUMBER FUNCTIONS
