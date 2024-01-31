@@ -396,11 +396,12 @@ def v_get_reg_number(
     all_words,
     final_textboxes,
     ignore_horizontal_in_reg_box=False,
-    order_text=False,
+    order_text=True,
 ):
     # Input: dictionary of category indexes per textbox; all texts.
     # Output: registration number.
     all_text = []
+    all_inds = []
 
     for j in list(inds_dict.keys()):
         if inds_dict[j] == 0:
@@ -411,12 +412,18 @@ def v_get_reg_number(
                     horizontal_or_vertical = detect_orientation(box[:, 0], box[:, 1])
                     if horizontal_or_vertical == "v":
                         all_text.append(txt)
+                        all_inds.append(j)
                 else:
                     all_text.append(txt)
+                    all_inds.append(j)
     if order_text:
         try:
-            # Order all_text by length of string.
-            all_text = np.array(all_text)[np.argsort([len(a) for a in all_text])[::-1]]
+            max_y = [max(final_textboxes[k][:, 1]) for k in all_inds]
+            text_order = np.argsort(max_y)[::-1]
+            # Order all_text by y position of textbox.
+            all_text = np.array(all_text)[text_order]
+            # # Order all_text by length of string.
+            # all_text = np.array(all_text)[np.argsort([len(a) for a in all_text])[::-1]]
         except:
             pass
 
@@ -446,7 +453,7 @@ def v_check_for_possible_reg_number(texts):
     return reg_
 
 
-def v_get_species_text(inds_dict, all_words):
+def v_get_species_text(inds_dict, all_words, final_textboxes, order_reg=True):
     # Input: dictionary of category indexes per textbox; all texts.
     # Output: text contained in species box, and possible registration number.
     inds = [j for j in list(inds_dict.keys()) if inds_dict[j] == 1]
@@ -461,12 +468,19 @@ def v_get_species_text(inds_dict, all_words):
     else:
         species_text = []
         reg_text = []
-        for w in texts:
+        reg_inds = []
+        for ind, w in enumerate(texts):
             if len(re.findall("\d+", w)) == 0:
                 if (fuzz.ratio("Reg.No", w) < 80) and (fuzz.ratio("Reg", w) < 80):
                     species_text.append(w)
             else:
                 reg_text.append(w)
+                reg_inds.append(inds[ind])
+
+        if order_reg:
+            max_x = [max(final_textboxes[k][:, 0]) for k in reg_inds]
+            text_order = np.argsort(max_x)
+            reg_text = np.array(reg_text)[text_order]
 
         species = " ".join(
             map(str, re.findall("\w+", " ".join(map(str, species_text))))
@@ -597,7 +611,9 @@ def v_get_all_category_text(
     except:
         reg = "N/A"
     try:
-        cardSpecies, reg_backup = v_get_species_text(inds_dict, all_words)
+        cardSpecies, reg_backup = v_get_species_text(
+            inds_dict, all_words, final_textboxes
+        )
     except:
         cardSpecies = "N/A"
         reg_backup = "N/A"
