@@ -36,6 +36,10 @@ class OpenAIImageTask(BaseTask):
 
     def run(self):
         response = self.call_api()
+
+        if response.get('error'):
+            raise Exception(response['error']['message'])
+
         with self.output().open('w') as f:
             json.dump(response, f)
 
@@ -88,6 +92,9 @@ class OpenAITask(BaseTask):
             with json_input_path.open() as f:
 
                 json_data = json.load(f)
+
+                print(json_data)
+
                 content = json_data['choices'][0]['message']['content']
                 content = content.replace('json\n', '').replace('```', '')
 
