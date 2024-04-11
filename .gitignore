@@ -7,3 +7,5 @@ tests/*
 __pycache__/
 *.csv
 *.npy
+.env
+.DS_Store
